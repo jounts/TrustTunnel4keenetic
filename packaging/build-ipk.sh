@@ -52,6 +52,33 @@ mkdir -p "$DATA/opt/etc/ndm/button.d"
 mkdir -p "$DATA/opt/trusttunnel_client/routing"
 mkdir -p "$DATA/opt/etc/dnsmasq.d"
 
+# Ship default conffiles so opkg can track them from the start
+cat > "$DATA/opt/trusttunnel_client/mode.conf" << 'MODEOF'
+TT_MODE="socks5"
+TUN_IDX="0"
+PROXY_IDX="0"
+HC_ENABLED="yes"
+HC_INTERVAL="30"
+HC_FAIL_THRESHOLD="3"
+HC_GRACE_PERIOD="60"
+HC_TARGET_URL="http://connectivitycheck.gstatic.com/generate_204"
+HC_CURL_TIMEOUT="5"
+HC_SOCKS5_PROXY="127.0.0.1:1080"
+SR_ENABLED="no"
+SR_HOME_COUNTRY="RU"
+SR_DNS_PORT="5354"
+SR_DNS_UPSTREAM="1.1.1.1"
+MODEOF
+
+cat > "$DATA/opt/trusttunnel_client/manager.conf" << 'MGREOF'
+LISTEN_ADDR=":8080"
+USERNAME="admin"
+PASSWORD=""
+MGREOF
+
+touch "$DATA/opt/trusttunnel_client/trusttunnel_client.toml"
+touch "$DATA/opt/trusttunnel_client/routing/domains.txt"
+
 # Copy manager binary
 cp "$BINARY" "$DATA/opt/trusttunnel_client/trusttunnel-manager"
 chmod 755 "$DATA/opt/trusttunnel_client/trusttunnel-manager"
