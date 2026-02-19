@@ -46,6 +46,8 @@ mkdir -p "$DATA/opt/etc/ndm/iflayerchanged.d"
 mkdir -p "$DATA/opt/etc/ndm/netfilter.d"
 mkdir -p "$DATA/opt/etc/ndm/schedule.d"
 mkdir -p "$DATA/opt/etc/ndm/button.d"
+mkdir -p "$DATA/opt/trusttunnel_client/routing"
+mkdir -p "$DATA/opt/etc/dnsmasq.d"
 
 # Copy manager binary
 cp "$BINARY" "$DATA/opt/trusttunnel_client/trusttunnel-manager"
@@ -54,8 +56,13 @@ chmod 755 "$DATA/opt/trusttunnel_client/trusttunnel-manager"
 # Copy scripts
 cp "$PROJECT_DIR/scripts/install.sh" "$DATA/opt/trusttunnel_client/"
 cp "$PROJECT_DIR/scripts/configure.sh" "$DATA/opt/trusttunnel_client/"
+cp "$PROJECT_DIR/scripts/ndms-compat.sh" "$DATA/opt/trusttunnel_client/"
 chmod 755 "$DATA/opt/trusttunnel_client/install.sh"
 chmod 755 "$DATA/opt/trusttunnel_client/configure.sh"
+chmod 755 "$DATA/opt/trusttunnel_client/ndms-compat.sh"
+
+cp "$PROJECT_DIR/scripts/smart-routing.sh" "$DATA/opt/trusttunnel_client/"
+chmod 755 "$DATA/opt/trusttunnel_client/smart-routing.sh"
 
 # Copy init scripts
 cp "$PROJECT_DIR/scripts/init.d/S98trusttunnel-manager" "$DATA/opt/etc/init.d/"

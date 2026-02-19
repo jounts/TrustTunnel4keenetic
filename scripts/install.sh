@@ -133,6 +133,10 @@ install_scripts() {
     curl -fsSL "$base_url/init.d/S98trusttunnel-manager" -o "$INIT_DIR/S98trusttunnel-manager"
     chmod 755 "$INIT_DIR/S98trusttunnel-manager"
 
+    info "Installing NDMS compatibility layer..."
+    curl -fsSL "$base_url/ndms-compat.sh" -o "$INSTALL_DIR/ndms-compat.sh"
+    chmod 755 "$INSTALL_DIR/ndms-compat.sh"
+
     info "Installing NDM hooks..."
 
     local hooks="wan.d/010-trusttunnel.sh iflayerchanged.d/trusttunnel.sh netfilter.d/trusttunnel.sh schedule.d/trusttunnel.sh button.d/trusttunnel.sh"
@@ -144,7 +148,26 @@ install_scripts() {
         chmod 755 "$HOOKS_DIR/$hook"
     done
 
+    info "Installing smart-routing script..."
+    curl -fsSL "$base_url/smart-routing.sh" -o "$INSTALL_DIR/smart-routing.sh"
+    chmod 755 "$INSTALL_DIR/smart-routing.sh"
+
     info "All scripts and hooks installed"
+}
+
+install_smart_routing_deps() {
+    info "Checking Smart Routing dependencies..."
+
+    if command -v opkg > /dev/null 2>&1; then
+        for pkg in dnsmasq-full ipset; do
+            if ! opkg list-installed 2>/dev/null | grep -q "^${pkg} "; then
+                info "Installing $pkg..."
+                opkg install "$pkg" 2>/dev/null || warn "Failed to install $pkg (optional for Smart Routing)"
+            fi
+        done
+    else
+        warn "opkg not found, skipping Smart Routing dependency install"
+    fi
 }
 
 create_default_config() {
@@ -160,6 +183,10 @@ HC_GRACE_PERIOD="60"
 HC_TARGET_URL="http://connectivitycheck.gstatic.com/generate_204"
 HC_CURL_TIMEOUT="5"
 HC_SOCKS5_PROXY="127.0.0.1:1080"
+SR_ENABLED="no"
+SR_HOME_COUNTRY="RU"
+SR_DNS_PORT="5354"
+SR_DNS_UPSTREAM="1.1.1.1"
 MODECONF
         info "Default mode config created"
     fi
@@ -176,8 +203,10 @@ MGRCONF
 
 create_dirs() {
     mkdir -p "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR/routing"
     mkdir -p /opt/var/run
     mkdir -p /opt/var/log
+    mkdir -p /opt/etc/dnsmasq.d
     mkdir -p "$INIT_DIR"
     mkdir -p "$HOOKS_DIR"
 }
@@ -196,6 +225,7 @@ main() {
     download_client "$arch"
     download_manager "$arch"
     install_scripts
+    install_smart_routing_deps
     create_default_config
 
     echo ""

@@ -23,13 +23,18 @@ type ModeInfo struct {
 	TunIdx   int    `json:"tun_idx"`
 	ProxyIdx int    `json:"proxy_idx"`
 	// Health check settings
-	HCEnabled        string `json:"hc_enabled"`
-	HCInterval       int    `json:"hc_interval"`
-	HCFailThreshold  int    `json:"hc_fail_threshold"`
-	HCGracePeriod    int    `json:"hc_grace_period"`
-	HCTargetURL      string `json:"hc_target_url"`
-	HCCurlTimeout    int    `json:"hc_curl_timeout"`
-	HCSocks5Proxy    string `json:"hc_socks5_proxy"`
+	HCEnabled       string `json:"hc_enabled"`
+	HCInterval      int    `json:"hc_interval"`
+	HCFailThreshold int    `json:"hc_fail_threshold"`
+	HCGracePeriod   int    `json:"hc_grace_period"`
+	HCTargetURL     string `json:"hc_target_url"`
+	HCCurlTimeout   int    `json:"hc_curl_timeout"`
+	HCSocks5Proxy   string `json:"hc_socks5_proxy"`
+	// Smart routing settings
+	SREnabled     string `json:"sr_enabled"`
+	SRHomeCountry string `json:"sr_home_country"`
+	SRDNSPort     int    `json:"sr_dns_port"`
+	SRDNSUpstream string `json:"sr_dns_upstream"`
 }
 
 type ConfigManager struct{}
@@ -80,6 +85,10 @@ func (c *ConfigManager) ReadMode() (*ModeInfo, error) {
 		HCTargetURL:     "http://connectivitycheck.gstatic.com/generate_204",
 		HCCurlTimeout:   5,
 		HCSocks5Proxy:   "127.0.0.1:1080",
+		SREnabled:       "no",
+		SRHomeCountry:   "RU",
+		SRDNSPort:       5354,
+		SRDNSUpstream:   "1.1.1.1",
 	}
 
 	for _, line := range strings.Split(string(data), "\n") {
@@ -115,10 +124,50 @@ func (c *ConfigManager) ReadMode() (*ModeInfo, error) {
 			info.HCCurlTimeout, _ = strconv.Atoi(val)
 		case "HC_SOCKS5_PROXY":
 			info.HCSocks5Proxy = val
+		case "SR_ENABLED":
+			info.SREnabled = val
+		case "SR_HOME_COUNTRY":
+			info.SRHomeCountry = val
+		case "SR_DNS_PORT":
+			info.SRDNSPort, _ = strconv.Atoi(val)
+		case "SR_DNS_UPSTREAM":
+			info.SRDNSUpstream = val
 		}
 	}
 
 	return info, nil
+}
+
+func (c *ConfigManager) WriteSRConfig(enabled, homeCountry, dnsUpstream string, dnsPort int) error {
+	existing, _ := os.ReadFile(modeConfigPath)
+
+	var content string
+	if len(existing) > 0 {
+		for _, line := range strings.Split(string(existing), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			switch key {
+			case "SR_ENABLED", "SR_HOME_COUNTRY", "SR_DNS_PORT", "SR_DNS_UPSTREAM":
+				continue
+			default:
+				content += line + "\n"
+			}
+		}
+	}
+
+	content += fmt.Sprintf("SR_ENABLED=\"%s\"\n", enabled)
+	content += fmt.Sprintf("SR_HOME_COUNTRY=\"%s\"\n", homeCountry)
+	content += fmt.Sprintf("SR_DNS_PORT=\"%d\"\n", dnsPort)
+	content += fmt.Sprintf("SR_DNS_UPSTREAM=\"%s\"\n", dnsUpstream)
+
+	return os.WriteFile(modeConfigPath, []byte(content), 0644)
 }
 
 func (c *ConfigManager) WriteMode(mode string, tunIdx, proxyIdx int) error {

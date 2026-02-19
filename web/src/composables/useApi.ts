@@ -81,9 +81,36 @@ export interface UpdateInfo {
 export interface SystemInfo {
   model: string
   firmware: string
+  ndms_major: number
+  fw_backend: string
   architecture: string
   hostname: string
   uptime: string
+}
+
+export interface RoutingConfig {
+  sr_enabled: string
+  sr_home_country: string
+  sr_dns_port: number
+  sr_dns_upstream: string
+}
+
+export interface RoutingStats {
+  domestic_entries: number
+  tunnel_entries: number
+  dnsmasq_running: boolean
+  nets_updated: string
+  fw_backend: string
+  ndms_major: number
+}
+
+export interface RoutingInfo {
+  config: RoutingConfig
+  stats: RoutingStats | null
+}
+
+export interface RoutingDomains {
+  domains: string
 }
 
 export function useApi() {
@@ -118,5 +145,13 @@ export function useApi() {
     checkUpdate: () => call(() => request<UpdateInfo>('/update/check')),
     installUpdate: () => call(() => request<any>('/update/install', { method: 'POST' })),
     getSystem: () => call(() => request<SystemInfo>('/system')),
+    getRouting: () => call(() => request<RoutingInfo>('/routing')),
+    putRouting: (data: RoutingConfig) =>
+      call(() => request<any>('/routing', { method: 'PUT', body: JSON.stringify(data) })),
+    getRoutingDomains: () => call(() => request<RoutingDomains>('/routing/domains')),
+    putRoutingDomains: (data: { domains: string }) =>
+      call(() => request<any>('/routing/domains', { method: 'PUT', body: JSON.stringify(data) })),
+    updateRoutingNets: () =>
+      call(() => request<any>('/routing/update-nets', { method: 'POST' })),
   }
 }

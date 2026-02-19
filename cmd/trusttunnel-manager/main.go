@@ -12,6 +12,7 @@ import (
 	"github.com/jounts/TrustTunnel4keenetic/internal/api"
 	"github.com/jounts/TrustTunnel4keenetic/internal/ndm"
 	"github.com/jounts/TrustTunnel4keenetic/internal/platform"
+	"github.com/jounts/TrustTunnel4keenetic/internal/routing"
 	"github.com/jounts/TrustTunnel4keenetic/internal/service"
 )
 
@@ -36,6 +37,7 @@ func main() {
 	updater := service.NewUpdater()
 	ndmClient := ndm.NewClient("http://localhost:79")
 	sysInfo := platform.NewInfo()
+	routingMgr := routing.NewManager()
 
 	var staticFS http.FileSystem
 	if *devMode {
@@ -55,6 +57,7 @@ func main() {
 		Updater:        updater,
 		NDMClient:      ndmClient,
 		SystemInfo:     sysInfo,
+		RoutingManager: routingMgr,
 		StaticFS:       staticFS,
 		Username:       cfg.username,
 		Password:       cfg.password,

@@ -10,6 +10,7 @@
 TT_DIR="/opt/trusttunnel_client"
 MODE_CONF="$TT_DIR/mode.conf"
 LOG_FILE="/opt/var/log/trusttunnel.log"
+COMPAT_SH="$TT_DIR/ndms-compat.sh"
 
 log_msg() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [netfilter.d] $*" >> "$LOG_FILE"
@@ -19,15 +20,26 @@ log_msg() {
 
 . "$MODE_CONF"
 
+# Load NDMS compatibility layer
+if [ -f "$COMPAT_SH" ]; then
+    . "$COMPAT_SH"
+fi
+
 if [ "$TT_MODE" = "tun" ]; then
     TUN_IF="tun${TUN_IDX:-0}"
 
     if ip link show "$TUN_IF" > /dev/null 2>&1; then
-        log_msg "Restoring iptables rules for $TUN_IF (table=$table)"
+        log_msg "Restoring firewall rules for $TUN_IF (table=$table, backend=${NDMS_FW_BACKEND:-iptables})"
 
-        iptables -t nat -A POSTROUTING -o "$TUN_IF" -j MASQUERADE 2>/dev/null
-        iptables -A FORWARD -i "$TUN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
-        iptables -A FORWARD -o "$TUN_IF" -j ACCEPT 2>/dev/null
+        fw_add_nat_masquerade "$TUN_IF"
+        fw_add_forward_accept "$TUN_IF"
+
+        # Restore smart routing mangle rules
+        SMART_ROUTING_SH="$TT_DIR/smart-routing.sh"
+        if [ "$SR_ENABLED" = "yes" ] && [ -f "$SMART_ROUTING_SH" ]; then
+            . "$SMART_ROUTING_SH"
+            sr_restore_iptables
+        fi
     fi
 fi
 

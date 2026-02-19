@@ -4,12 +4,26 @@
 
 ## Возможности
 
-- **Веб-панель управления** — Dashboard, настройки, логи, обновления
+- **Веб-панель управления** — Dashboard, настройки, маршрутизация, логи, обновления
 - **Два режима работы** — SOCKS5 (Proxy) и TUN (полный перехват трафика)
+- **Smart Routing (GeoIP)** — домашний трафик напрямую, зарубежный через туннель
 - **NDM-хуки** — автостарт при WAN up, управление по расписанию, toggle по кнопке FN
 - **Watchdog + Health Check** — автоматический перезапуск при сбоях
 - **Обновление клиента** — проверка и установка обновлений через GitHub Releases
+- **Поддержка NDMS 4 и NDMS 5** — автоопределение версии, совместимость iptables/nftables
 - **Кросс-платформенность** — mipsel, mips, aarch64, armv7
+
+## Совместимость с NDMS
+
+| Компонент | NDMS 4 | NDMS 5 |
+|-----------|--------|--------|
+| Firewall | iptables (legacy) | iptables / nftables (авто) |
+| Интерфейсы | `nwg{N}` → `tun{N}` | Автоопределение префикса |
+| ndmc CLI | Стандартный синтаксис | С обработкой ошибок совместимости |
+| ipset | ipset (hash:net) | ipset или nft sets |
+| Smart Routing | dnsmasq + ipset | dnsmasq + ipset/nftset |
+
+Определение версии NDMS выполняется автоматически при старте. Информация о версии отображается в веб-панели (Dashboard → Система, Маршрутизация → Статистика).
 
 ## Архитектура
 
@@ -18,7 +32,24 @@
                     ↕                              ↕
               [RCI API :79]                  [NDM хуки]
               (ndmc команды)           (wan.d, netfilter.d, ...)
+                                               ↕
+                                       [ndms-compat.sh]
+                                    (iptables / nftables)
 ```
+
+### Smart Routing
+
+```
+[Клиент] → [iptables/nft mangle] → tt_tunnel ipset? → Через туннель (default route)
+                                  → tt_domestic ipset? → MARK 0x100 → Таблица 100 → ISP gateway
+                                  → Остальное → Через туннель
+
+[dnsmasq :5354] → Разрешает домены из domains.txt → Добавляет IP в tt_tunnel ipset
+```
+
+- **tt_domestic** — CIDR-диапазоны домашней страны (из github.com/herrbischoff/country-ip-blocks)
+- **tt_tunnel** — IP, разрешённые dnsmasq для доменов, которые должны идти через туннель
+- Приоритет: `tt_tunnel` > `tt_domestic` > всё остальное через туннель
 
 `trusttunnel-manager` — Go-бинарник со встроенной Vue 3 SPA. Управляет клиентом через init-скрипты, взаимодействует с NDM через RCI API.
 
@@ -38,6 +69,12 @@ wget https://github.com/jounts/TrustTunnel4keenetic/releases/latest/download/tru
 
 # Установите
 opkg install trusttunnel-manager_*.ipk
+```
+
+### Зависимости для Smart Routing (опционально)
+
+```bash
+opkg install dnsmasq-full ipset
 ```
 
 ### Определение архитектуры
@@ -79,6 +116,19 @@ USERNAME="admin"
 PASSWORD="your_password"
 ```
 
+### Smart Routing
+
+Доступен только в режиме **TUN**. Настраивается через веб-панель (Маршрутизация) или `mode.conf`:
+
+```bash
+SR_ENABLED="yes"
+SR_HOME_COUNTRY="RU"
+SR_DNS_PORT="5354"
+SR_DNS_UPSTREAM="1.1.1.1"
+```
+
+Домены для принудительной маршрутизации через туннель: `/opt/trusttunnel_client/routing/domains.txt`
+
 ## Запуск
 
 ```bash
@@ -105,7 +155,12 @@ PASSWORD="your_password"
 | `GET` | `/api/logs/stream` | SSE-поток логов (live) |
 | `GET` | `/api/update/check` | Проверка обновлений |
 | `POST` | `/api/update/install` | Установка обновления клиента |
-| `GET` | `/api/system` | Информация о системе |
+| `GET` | `/api/system` | Информация о системе (модель, прошивка, NDMS версия, FW backend) |
+| `GET` | `/api/routing` | Конфигурация и статистика Smart Routing |
+| `PUT` | `/api/routing` | Обновление настроек Smart Routing |
+| `GET` | `/api/routing/domains` | Список доменов для туннеля |
+| `PUT` | `/api/routing/domains` | Обновление списка доменов |
+| `POST` | `/api/routing/update-nets` | Обновление GeoIP-списков |
 
 Аутентификация: HTTP Basic Auth (если задан пароль).
 
@@ -115,7 +170,7 @@ PASSWORD="your_password"
 |-----|------|----------|
 | WAN up/down | `wan.d/010-trusttunnel.sh` | Автостарт при получении IP |
 | Interface change | `iflayerchanged.d/trusttunnel.sh` | Перезапуск при падении интерфейса |
-| Netfilter | `netfilter.d/trusttunnel.sh` | Восстановление iptables-правил |
+| Netfilter | `netfilter.d/trusttunnel.sh` | Восстановление firewall-правил (iptables/nftables) |
 | Schedule | `schedule.d/trusttunnel.sh` | Start/stop по расписанию NDMS |
 | Button | `button.d/trusttunnel.sh` | Toggle по кнопке FN |
 
@@ -127,12 +182,15 @@ TrustTunnel4keenetic/
 ├── internal/
 │   ├── api/                    # REST API handlers + middleware
 │   ├── service/                # Process manager, config, updater
-│   ├── ndm/                    # RCI API клиент
-│   └── platform/               # Системная информация
+│   ├── ndm/                    # RCI API клиент (NDMS 4/5 compat)
+│   ├── routing/                # Smart Routing manager
+│   └── platform/               # Системная информация (NDMS version, FW backend)
 ├── web/                        # Vue 3 + Vite + Tailwind CSS
 ├── scripts/
 │   ├── hooks/                  # NDM хуки
 │   ├── init.d/                 # Init-скрипты
+│   ├── ndms-compat.sh          # Слой совместимости NDMS 4/5 (iptables/nftables)
+│   ├── smart-routing.sh        # Smart Routing (ipset, dnsmasq, policy routing)
 │   ├── install.sh              # Установщик
 │   └── configure.sh            # Интерактивная настройка
 ├── packaging/                  # Сборка .ipk
