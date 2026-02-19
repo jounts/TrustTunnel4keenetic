@@ -34,6 +34,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/logs/stream", h.streamLogs)
 	mux.HandleFunc("/api/update/check", methodOnly("GET", h.checkUpdate))
 	mux.HandleFunc("/api/update/install", methodOnly("POST", h.installUpdate))
+	mux.HandleFunc("/api/update/install-manager", methodOnly("POST", h.installManagerUpdate))
 	mux.HandleFunc("/api/system", methodOnly("GET", h.getSystem))
 	mux.HandleFunc("/api/routing", h.routingHandler)
 	mux.HandleFunc("/api/routing/domains", h.routingDomainsHandler)

@@ -144,6 +144,7 @@ export function useApi() {
     getLogs: (lines = 100) => call(() => request<{ lines: string[]; count: number }>(`/logs?lines=${lines}`)),
     checkUpdate: () => call(() => request<UpdateInfo>('/update/check')),
     installUpdate: () => call(() => request<any>('/update/install', { method: 'POST' })),
+    installManagerUpdate: () => call(() => request<any>('/update/install-manager', { method: 'POST' })),
     getSystem: () => call(() => request<SystemInfo>('/system')),
     getRouting: () => call(() => request<RoutingInfo>('/routing')),
     putRouting: (data: RoutingConfig) =>

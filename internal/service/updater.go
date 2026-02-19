@@ -152,6 +152,58 @@ func (u *Updater) Install() (*UpdateResult, error) {
 	}, nil
 }
 
+const (
+	managerBin        = "/opt/trusttunnel_client/trusttunnel-manager"
+	managerInitScript = "/opt/etc/init.d/S98trusttunnel-manager"
+)
+
+func (u *Updater) InstallManager() (*UpdateResult, error) {
+	arch := detectArch()
+	assetName := fmt.Sprintf("trusttunnel-manager-linux-%s", arch)
+	log.Printf("[update-manager] searching asset: %s", assetName)
+
+	downloadURL, err := u.findAssetURL(managerRepo, assetName, "")
+	if err != nil {
+		return nil, fmt.Errorf("find asset: %w", err)
+	}
+	log.Printf("[update-manager] downloading %s", downloadURL)
+
+	tmpFile := "/tmp/trusttunnel-manager-new"
+	if err := u.download(downloadURL, tmpFile); err != nil {
+		os.Remove(tmpFile)
+		return nil, fmt.Errorf("download: %w", err)
+	}
+
+	if info, err := os.Stat(tmpFile); err == nil {
+		log.Printf("[update-manager] downloaded %d bytes", info.Size())
+	}
+
+	if err := os.Chmod(tmpFile, 0755); err != nil {
+		os.Remove(tmpFile)
+		return nil, fmt.Errorf("chmod: %w", err)
+	}
+
+	if out, err := exec.Command("cp", "-f", tmpFile, managerBin).CombinedOutput(); err != nil {
+		os.Remove(tmpFile)
+		return nil, fmt.Errorf("replace binary: %w: %s", err, string(out))
+	}
+	os.Remove(tmpFile)
+
+	latestVer, _ := u.latestRelease(managerRepo)
+	log.Printf("[update-manager] binary replaced, scheduling restart, new version: %s", latestVer)
+
+	// Detached restart: survives current process termination
+	exec.Command("sh", "-c",
+		fmt.Sprintf("sleep 1 && %s restart", managerInitScript),
+	).Start()
+
+	return &UpdateResult{
+		Success: true,
+		Message: "Manager updated, restarting...",
+		Version: latestVer,
+	}, nil
+}
+
 func (u *Updater) latestRelease(repo string) (string, error) {
 	// Try /releases/latest first (skips pre-releases)
 	url := fmt.Sprintf("%s/%s/releases/latest", githubAPI, repo)
@@ -198,37 +250,63 @@ func (u *Updater) latestRelease(repo string) (string, error) {
 }
 
 func (u *Updater) findAssetURL(repo, prefix, suffix string) (string, error) {
-	url := fmt.Sprintf("%s/%s/releases/latest", githubAPI, repo)
-	req, _ := http.NewRequest("GET", url, nil)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err := u.httpClient.Do(req)
-	if err != nil {
-		return "", err
+	// Try /releases/latest, fallback to /releases?per_page=1 for pre-releases
+	urls := []string{
+		fmt.Sprintf("%s/%s/releases/latest", githubAPI, repo),
+		fmt.Sprintf("%s/%s/releases?per_page=1", githubAPI, repo),
 	}
-	defer resp.Body.Close()
 
-	var release struct {
-		Assets []struct {
+	for _, url := range urls {
+		req, _ := http.NewRequest("GET", url, nil)
+		req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+		resp, err := u.httpClient.Do(req)
+		if err != nil {
+			continue
+		}
+
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			continue
+		}
+
+		type asset struct {
 			Name               string `json:"name"`
 			BrowserDownloadURL string `json:"browser_download_url"`
-		} `json:"assets"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", err
-	}
+		}
+		type releaseInfo struct {
+			Assets []asset `json:"assets"`
+		}
 
-	for _, a := range release.Assets {
-		if strings.HasPrefix(a.Name, prefix) && strings.HasSuffix(a.Name, suffix) {
-			log.Printf("[update] matched asset: %s", a.Name)
-			return a.BrowserDownloadURL, nil
+		var assets []asset
+		// Try as single object first, then as array
+		var single releaseInfo
+		if json.Unmarshal(body, &single) == nil && len(single.Assets) > 0 {
+			assets = single.Assets
+		} else {
+			var list []releaseInfo
+			if json.Unmarshal(body, &list) == nil && len(list) > 0 {
+				assets = list[0].Assets
+			}
+		}
+
+		for _, a := range assets {
+			if strings.HasPrefix(a.Name, prefix) && strings.HasSuffix(a.Name, suffix) {
+				log.Printf("[update] matched asset: %s", a.Name)
+				return a.BrowserDownloadURL, nil
+			}
+		}
+
+		if len(assets) > 0 {
+			names := make([]string, 0, len(assets))
+			for _, a := range assets {
+				names = append(names, a.Name)
+			}
+			log.Printf("[update] no match for %s*%s in assets: %v", prefix, suffix, names)
 		}
 	}
-	names := make([]string, 0, len(release.Assets))
-	for _, a := range release.Assets {
-		names = append(names, a.Name)
-	}
-	log.Printf("[update] no match for %s*%s in assets: %v", prefix, suffix, names)
 	return "", fmt.Errorf("asset %q not found in release", prefix+"*"+suffix)
 }
 

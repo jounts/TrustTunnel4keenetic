@@ -21,3 +21,12 @@ func (h *handlers) installUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, result)
 }
+
+func (h *handlers) installManagerUpdate(w http.ResponseWriter, r *http.Request) {
+	result, err := h.deps.Updater.InstallManager()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
