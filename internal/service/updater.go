@@ -101,7 +101,7 @@ func (u *Updater) Install() (*UpdateResult, error) {
 	svcMgr.Control("stop")
 
 	log.Printf("[update] extracting to /opt/trusttunnel_client/")
-	cmd := exec.Command("tar", "xzf", tmpFile, "-C", "/opt/trusttunnel_client/")
+	cmd := exec.Command("tar", "xzf", tmpFile, "--strip-components=1", "-C", "/opt/trusttunnel_client/")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("[update] extract failed: %v: %s", err, string(out))
 		svcMgr.Control("start")
