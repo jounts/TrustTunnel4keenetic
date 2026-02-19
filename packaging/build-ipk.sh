@@ -1,5 +1,6 @@
 #!/bin/bash
-set -e
+set -eo pipefail
+trap 'echo "FAILED at line $LINENO (exit code $?)" >&2' ERR
 
 ARCH="$1"
 VERSION="${2:-dev}"
@@ -89,7 +90,7 @@ sed 's/\r$//' "$SCRIPT_DIR/control/postinst"  > "$WORK/control/postinst"
 sed 's/\r$//' "$SCRIPT_DIR/control/prerm"     > "$WORK/control/prerm"
 chmod 755 "$WORK/control/postinst" "$WORK/control/prerm"
 
-# Build .ipk (ar archive)
+# Build .ipk (Entware uses tar.gz outer format, NOT ar like standard OpenWrt)
 printf "2.0\n" > "$WORK/debian-binary"
 
 (cd "$WORK/control" && tar --format=gnu --numeric-owner --owner=0 --group=0 -czf ../control.tar.gz .)
@@ -98,29 +99,12 @@ printf "2.0\n" > "$WORK/debian-binary"
 PKG_FILE="$PROJECT_DIR/$BUILD_DIR/$PKG_NAME"
 rm -f "$PKG_FILE"
 
-# Construct ar archive manually for maximum opkg compatibility.
-# System `ar` may inject symbol tables that opkg's minimal parser rejects.
-ar_append_member() {
-    local archive="$1" file="$2" name="$3"
-    local size
-    size=$(wc -c < "$file")
-    size=$((size + 0))
-    printf '%-16s%-12s%-6s%-6s%-8s%-10s`\n' \
-        "${name}/" "0" "0" "0" "100644" "$size" >> "$archive"
-    cat "$file" >> "$archive"
-    if [ $((size % 2)) -ne 0 ]; then
-        printf '\n' >> "$archive"
-    fi
-}
-
 cd "$WORK"
-printf '!<arch>\n' > "$PKG_FILE"
-ar_append_member "$PKG_FILE" debian-binary   "debian-binary"
-ar_append_member "$PKG_FILE" control.tar.gz  "control.tar.gz"
-ar_append_member "$PKG_FILE" data.tar.gz     "data.tar.gz"
+tar --format=gnu --numeric-owner --owner=0 --group=0 \
+    -czf "$PKG_FILE" ./debian-binary ./control.tar.gz ./data.tar.gz
 
 echo "Package contents verification:"
-ar t "$PKG_FILE" || true
+tar tzf "$PKG_FILE"
 echo "Control archive contents:"
 tar tzf control.tar.gz
 
