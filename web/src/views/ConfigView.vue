@@ -11,29 +11,33 @@ const saved = ref(false)
 const modeChanging = ref(false)
 const showModeWarning = ref(false)
 const pendingMode = ref('')
-const configPlaceholder = `# Пример конфигурации TrustTunnel Client
-# Заполните и нажмите «Сохранить»
-# vpn_mode устанавливается автоматически при смене режима
+const configPlaceholder = `# Конфигурация TrustTunnel Client
+# Вставьте конфиг от эндпоинта и нажмите «Сохранить»
+# Секция [listener.*] управляется автоматически при смене режима
 
-vpn_mode = "socks5"  # "socks5" или "tun"
+vpn_mode = "general"
 
+[endpoint]
 hostname = "vpn.endpoint"
 addresses = ["ip:port"]
 has_ipv6 = true
-
 username = "username"
 password = "pass"
-
 skip_verification = false
-
 certificate = """
 -----BEGIN CERTIFICATE-----
 -----END CERTIFICATE-----
 """
-
 upstream_protocol = "http2"
-upstream_fallback_protocol = ""
-anti_dpi = false`
+anti_dpi = false
+
+# Для TUN режима:
+[listener.tun]
+mtu_size = 1280
+
+# Для SOCKS5 режима (вместо [listener.tun]):
+# [listener.socks]
+# address = "127.0.0.1:1080"`
 
 onMounted(async () => {
   config.value = await api.getConfig()

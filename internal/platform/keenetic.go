@@ -24,9 +24,23 @@ func NewInfo() *Info {
 }
 
 func (i *Info) Get() *SystemInfo {
+	model := readFirstLine("/tmp/ndm/hw_type")
 	firmware := readFirstLine("/tmp/ndm/version")
+
+	// Fallback: query ndmc if files are missing
+	if model == "unknown" || firmware == "unknown" {
+		if ndmInfo := ndmcShowVersion(); ndmInfo != nil {
+			if model == "unknown" && ndmInfo.model != "" {
+				model = ndmInfo.model
+			}
+			if firmware == "unknown" && ndmInfo.version != "" {
+				firmware = ndmInfo.version
+			}
+		}
+	}
+
 	return &SystemInfo{
-		Model:        readFirstLine("/tmp/ndm/hw_type"),
+		Model:        model,
 		Firmware:     firmware,
 		NDMSMajor:    detectNDMSMajor(firmware),
 		FWBackend:    detectFWBackend(),
@@ -34,6 +48,41 @@ func (i *Info) Get() *SystemInfo {
 		Hostname:     getHostname(),
 		Uptime:       readFirstLine("/proc/uptime"),
 	}
+}
+
+type ndmcInfo struct {
+	model   string
+	version string
+}
+
+func ndmcShowVersion() *ndmcInfo {
+	out, err := exec.Command("ndmc", "-c", "show version").CombinedOutput()
+	if err != nil {
+		return nil
+	}
+	info := &ndmcInfo{}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if k, v, ok := strings.Cut(line, ":"); ok {
+			k = strings.TrimSpace(k)
+			v = strings.TrimSpace(v)
+			switch k {
+			case "model":
+				info.model = v
+			case "device":
+				if info.model == "" {
+					info.model = v
+				}
+			case "title":
+				info.version = v
+			case "release":
+				if info.version == "" {
+					info.version = v
+				}
+			}
+		}
+	}
+	return info
 }
 
 func detectNDMSMajor(firmware string) int {

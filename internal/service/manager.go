@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -94,8 +95,7 @@ func processAlive(pid int) bool {
 	if err != nil {
 		return false
 	}
-	err = proc.Signal(os.Signal(nil))
-	return err == nil
+	return proc.Signal(syscall.Signal(0)) == nil
 }
 
 func readFileStr(path string) string {
