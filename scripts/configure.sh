@@ -55,6 +55,33 @@ if [ "$hc_enabled" = "yes" ]; then
     hc_threshold=${hc_threshold:-3}
 fi
 
+# Smart routing
+sr_enabled="no"
+sr_country="RU"
+sr_dns_port=5354
+sr_dns_upstream="1.1.1.1"
+
+if [ "$mode" = "tun" ]; then
+    echo ""
+    ask "Включить Smart Routing (GeoIP)? (yes/no) [no]:"
+    read -r sr_enabled
+    sr_enabled=${sr_enabled:-no}
+
+    if [ "$sr_enabled" = "yes" ]; then
+        ask "Код домашней страны (RU/UA/BY/KZ/...) [RU]:"
+        read -r sr_country
+        sr_country=${sr_country:-RU}
+
+        ask "DNS upstream сервер [1.1.1.1]:"
+        read -r sr_dns_upstream
+        sr_dns_upstream=${sr_dns_upstream:-1.1.1.1}
+
+        ask "DNS порт для dnsmasq [5354]:"
+        read -r sr_dns_port
+        sr_dns_port=${sr_dns_port:-5354}
+    fi
+fi
+
 # Web panel
 ask "Порт веб-панели [8080]:"
 read -r web_port
@@ -113,6 +140,10 @@ HC_GRACE_PERIOD="60"
 HC_TARGET_URL="http://connectivitycheck.gstatic.com/generate_204"
 HC_CURL_TIMEOUT="5"
 HC_SOCKS5_PROXY="127.0.0.1:1080"
+SR_ENABLED="$sr_enabled"
+SR_HOME_COUNTRY="$sr_country"
+SR_DNS_PORT="$sr_dns_port"
+SR_DNS_UPSTREAM="$sr_dns_upstream"
 EOF
 info "Конфигурация режима сохранена: $MODE_CONF"
 

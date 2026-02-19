@@ -86,6 +86,29 @@ export interface SystemInfo {
   uptime: string
 }
 
+export interface RoutingConfig {
+  sr_enabled: string
+  sr_home_country: string
+  sr_dns_port: number
+  sr_dns_upstream: string
+}
+
+export interface RoutingStats {
+  domestic_entries: number
+  tunnel_entries: number
+  dnsmasq_running: boolean
+  nets_updated_at: string
+}
+
+export interface RoutingInfo {
+  config: RoutingConfig
+  stats: RoutingStats
+}
+
+export interface RoutingDomains {
+  domains: string[]
+}
+
 export function useApi() {
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -118,5 +141,13 @@ export function useApi() {
     checkUpdate: () => call(() => request<UpdateInfo>('/update/check')),
     installUpdate: () => call(() => request<any>('/update/install', { method: 'POST' })),
     getSystem: () => call(() => request<SystemInfo>('/system')),
+    getRouting: () => call(() => request<RoutingInfo>('/routing')),
+    putRouting: (data: RoutingConfig) =>
+      call(() => request<any>('/routing', { method: 'PUT', body: JSON.stringify(data) })),
+    getRoutingDomains: () => call(() => request<RoutingDomains>('/routing/domains')),
+    putRoutingDomains: (data: { domains: string[] }) =>
+      call(() => request<any>('/routing/domains', { method: 'PUT', body: JSON.stringify(data) })),
+    updateRoutingNets: () =>
+      call(() => request<any>('/routing/update-nets', { method: 'POST' })),
   }
 }

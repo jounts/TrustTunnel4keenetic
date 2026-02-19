@@ -16,6 +16,10 @@ HC_GRACE_PERIOD="60"
 HC_TARGET_URL="http://connectivitycheck.gstatic.com/generate_204"
 HC_CURL_TIMEOUT="5"
 HC_SOCKS5_PROXY="127.0.0.1:1080"
+SR_ENABLED="no"
+SR_HOME_COUNTRY="RU"
+SR_DNS_PORT="5354"
+SR_DNS_UPSTREAM="1.1.1.1"
 EOF
 fi
 
@@ -29,11 +33,14 @@ fi
 
 # Create required directories
 mkdir -p /opt/var/run /opt/var/log
+mkdir -p "$INSTALL_DIR/routing"
+mkdir -p /opt/etc/dnsmasq.d
 
 # Make scripts executable
 chmod 755 /opt/etc/init.d/S98trusttunnel-manager 2>/dev/null || true
 chmod 755 /opt/etc/init.d/S99trusttunnel 2>/dev/null || true
 chmod 755 "$INSTALL_DIR/trusttunnel-manager" 2>/dev/null || true
+chmod 755 "$INSTALL_DIR/smart-routing.sh" 2>/dev/null || true
 
 # Make NDM hooks executable
 for hook in /opt/etc/ndm/wan.d/010-trusttunnel.sh \

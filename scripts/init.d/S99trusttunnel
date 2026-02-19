@@ -29,9 +29,21 @@ HC_TARGET_URL="http://connectivitycheck.gstatic.com/generate_204"
 HC_CURL_TIMEOUT=5
 HC_SOCKS5_PROXY="127.0.0.1:1080"
 
+SR_ENABLED="no"
+SR_HOME_COUNTRY="RU"
+SR_DNS_PORT=5354
+SR_DNS_UPSTREAM="1.1.1.1"
+
+SMART_ROUTING_SH="$TT_DIR/smart-routing.sh"
+
 load_config() {
     [ -f "$MODE_CONF" ] && . "$MODE_CONF"
 }
+
+# Source smart routing functions if available
+if [ -f "$SMART_ROUTING_SH" ]; then
+    . "$SMART_ROUTING_SH"
+fi
 
 rotate_log() {
     if [ -f "$LOG_FILE" ]; then
@@ -128,6 +140,10 @@ start_client() {
     log_msg "Starting TrustTunnel client in $TT_MODE mode"
 
     if [ "$TT_MODE" = "tun" ]; then
+        # Save original gateway before tunnel changes default route
+        if [ "$SR_ENABLED" = "yes" ] && type sr_save_orig_gateway > /dev/null 2>&1; then
+            sr_save_orig_gateway
+        fi
         setup_tun_interface
         "$TT_BIN" --config "$TT_CONF" >> "$LOG_FILE" 2>&1 &
     else
@@ -141,12 +157,22 @@ start_client() {
     date +%s > "$START_TS_FILE"
     log_msg "Started with PID $pid"
 
+    # Start smart routing after tunnel is up
+    if [ "$SR_ENABLED" = "yes" ] && type sr_start > /dev/null 2>&1; then
+        sr_start
+    fi
+
     write_status_json
     start_watchdog
 }
 
 stop_client() {
     stop_watchdog
+
+    # Stop smart routing before stopping the tunnel
+    if type sr_stop > /dev/null 2>&1; then
+        sr_stop
+    fi
 
     if [ -f "$PID_FILE" ]; then
         local pid=$(cat "$PID_FILE")
