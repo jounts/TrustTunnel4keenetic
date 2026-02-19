@@ -171,12 +171,9 @@ func (c *ConfigManager) WriteSRConfig(enabled, homeCountry, dnsUpstream string, 
 }
 
 // SyncVpnMode ensures vpn_mode in the client TOML matches the selected mode.
-// socks5 → vpn_mode = 1, tun → vpn_mode = 2
+// Client expects a TOML string: "socks5" or "tun"
 func (c *ConfigManager) SyncVpnMode(mode string) error {
-	vpnMode := "1"
-	if mode == "tun" {
-		vpnMode = "2"
-	}
+	vpnMode := mode // "socks5" or "tun"
 
 	data, _ := os.ReadFile(clientConfigPath)
 	lines := strings.Split(string(data), "\n")
@@ -187,7 +184,7 @@ func (c *ConfigManager) SyncVpnMode(mode string) error {
 		if strings.HasPrefix(trimmed, "vpn_mode") {
 			parts := strings.SplitN(trimmed, "=", 2)
 			if len(parts) == 2 {
-				lines[i] = fmt.Sprintf("vpn_mode = %s", vpnMode)
+				lines[i] = fmt.Sprintf("vpn_mode = \"%s\"", vpnMode)
 				found = true
 				break
 			}
@@ -195,7 +192,6 @@ func (c *ConfigManager) SyncVpnMode(mode string) error {
 	}
 
 	if !found {
-		// Insert vpn_mode after any leading comments, or at the top
 		insertIdx := 0
 		for i, line := range lines {
 			trimmed := strings.TrimSpace(line)
@@ -205,7 +201,7 @@ func (c *ConfigManager) SyncVpnMode(mode string) error {
 			}
 			break
 		}
-		newLine := fmt.Sprintf("vpn_mode = %s", vpnMode)
+		newLine := fmt.Sprintf("vpn_mode = \"%s\"", vpnMode)
 		lines = append(lines[:insertIdx], append([]string{newLine, ""}, lines[insertIdx:]...)...)
 	}
 

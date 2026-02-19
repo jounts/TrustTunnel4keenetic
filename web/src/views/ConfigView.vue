@@ -15,7 +15,7 @@ const configPlaceholder = `# Пример конфигурации TrustTunnel C
 # Заполните и нажмите «Сохранить»
 # vpn_mode устанавливается автоматически при смене режима
 
-vpn_mode = 1  # 1 = SOCKS5, 2 = TUN
+vpn_mode = "socks5"  # "socks5" или "tun"
 
 hostname = "vpn.endpoint"
 addresses = ["ip:port"]

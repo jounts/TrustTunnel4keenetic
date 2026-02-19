@@ -41,6 +41,13 @@ func main() {
 	routingMgr := routing.NewManager()
 	sysInfo := platform.NewInfo()
 
+	// Ensure vpn_mode in client TOML matches the selected mode
+	if mode, err := cfgManager.ReadMode(); err == nil {
+		if err := cfgManager.SyncVpnMode(mode.Mode); err != nil {
+			log.Printf("Warning: failed to sync vpn_mode: %v", err)
+		}
+	}
+
 	var staticFS http.FileSystem
 	if *devMode {
 		log.Println("Development mode: serving from web/dist or proxy to Vite")
