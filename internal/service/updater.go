@@ -177,11 +177,16 @@ func (u *Updater) findAssetURL(repo, prefix, suffix string) (string, error) {
 }
 
 func (u *Updater) download(url, dest string) error {
-	resp, err := u.httpClient.Get(url)
+	dlClient := &http.Client{Timeout: 5 * time.Minute}
+	resp, err := dlClient.Get(url)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP %d %s", resp.StatusCode, resp.Status)
+	}
 
 	f, err := os.Create(dest)
 	if err != nil {
@@ -189,8 +194,12 @@ func (u *Updater) download(url, dest string) error {
 	}
 	defer f.Close()
 
-	_, err = io.Copy(f, resp.Body)
-	return err
+	n, err := io.Copy(f, resp.Body)
+	if err != nil {
+		return err
+	}
+	log.Printf("[update] saved %d bytes to %s", n, dest)
+	return nil
 }
 
 func detectArch() string {
