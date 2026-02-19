@@ -36,6 +36,13 @@ func (h *handlers) putConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if req.ClientConfig != "" {
+		mode, _ := h.deps.ConfigManager.ReadMode()
+		if mode != nil {
+			h.deps.ConfigManager.SyncVpnMode(mode.Mode)
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
 }
 
@@ -72,6 +79,11 @@ func (h *handlers) putMode(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.deps.ConfigManager.WriteMode(req.Mode, req.TunIdx, req.ProxyIdx); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if err := h.deps.ConfigManager.SyncVpnMode(req.Mode); err != nil {
+		writeError(w, http.StatusInternalServerError, "mode saved but failed to sync vpn_mode in client config: "+err.Error())
 		return
 	}
 
