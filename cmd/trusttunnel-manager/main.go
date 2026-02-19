@@ -30,6 +30,8 @@ func main() {
 		os.Exit(0)
 	}
 
+	service.SetManagerVersion(version)
+
 	cfg := loadConfig(*configPath, *addr)
 
 	svcManager := service.NewManager()

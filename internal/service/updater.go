@@ -67,9 +67,9 @@ func (u *Updater) Install() (*UpdateResult, error) {
 	arch := detectArch()
 	osName := "linux"
 
-	assetName := fmt.Sprintf("trusttunnel_client-%s-%s.tar.gz", osName, arch)
+	assetSuffix := fmt.Sprintf("-%s-%s.tar.gz", osName, arch)
 
-	downloadURL, err := u.findAssetURL(clientRepo, assetName)
+	downloadURL, err := u.findAssetURL(clientRepo, "trusttunnel_client", assetSuffix)
 	if err != nil {
 		return nil, fmt.Errorf("find asset: %w", err)
 	}
@@ -120,7 +120,7 @@ func (u *Updater) latestRelease(repo string) (string, error) {
 	return release.TagName, nil
 }
 
-func (u *Updater) findAssetURL(repo, assetName string) (string, error) {
+func (u *Updater) findAssetURL(repo, prefix, suffix string) (string, error) {
 	url := fmt.Sprintf("%s/%s/releases/latest", githubAPI, repo)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
@@ -142,11 +142,11 @@ func (u *Updater) findAssetURL(repo, assetName string) (string, error) {
 	}
 
 	for _, a := range release.Assets {
-		if strings.Contains(a.Name, assetName) || a.Name == assetName {
+		if strings.HasPrefix(a.Name, prefix) && strings.HasSuffix(a.Name, suffix) {
 			return a.BrowserDownloadURL, nil
 		}
 	}
-	return "", fmt.Errorf("asset %q not found in release", assetName)
+	return "", fmt.Errorf("asset %q not found in release", prefix+"*"+suffix)
 }
 
 func (u *Updater) download(url, dest string) error {
@@ -181,6 +181,12 @@ func detectArch() string {
 	}
 }
 
+var mgrVersion = "dev"
+
+func SetManagerVersion(v string) {
+	mgrVersion = v
+}
+
 func managerVersion() string {
-	return "dev"
+	return mgrVersion
 }
