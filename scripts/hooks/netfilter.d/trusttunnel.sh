@@ -28,6 +28,13 @@ if [ "$TT_MODE" = "tun" ]; then
         iptables -t nat -A POSTROUTING -o "$TUN_IF" -j MASQUERADE 2>/dev/null
         iptables -A FORWARD -i "$TUN_IF" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null
         iptables -A FORWARD -o "$TUN_IF" -j ACCEPT 2>/dev/null
+
+        # Restore smart routing mangle rules
+        SMART_ROUTING_SH="$TT_DIR/smart-routing.sh"
+        if [ "$SR_ENABLED" = "yes" ] && [ -f "$SMART_ROUTING_SH" ]; then
+            . "$SMART_ROUTING_SH"
+            sr_restore_iptables
+        fi
     fi
 fi
 

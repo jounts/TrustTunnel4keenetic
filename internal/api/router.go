@@ -6,6 +6,7 @@ import (
 
 	"github.com/jounts/TrustTunnel4keenetic/internal/ndm"
 	"github.com/jounts/TrustTunnel4keenetic/internal/platform"
+	"github.com/jounts/TrustTunnel4keenetic/internal/routing"
 	"github.com/jounts/TrustTunnel4keenetic/internal/service"
 )
 
@@ -14,6 +15,7 @@ type Dependencies struct {
 	ConfigManager  *service.ConfigManager
 	Updater        *service.Updater
 	NDMClient      *ndm.Client
+	RoutingManager *routing.Manager
 	SystemInfo     *platform.Info
 	StaticFS       http.FileSystem
 	Username       string
@@ -33,6 +35,9 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/update/check", methodOnly("GET", h.checkUpdate))
 	mux.HandleFunc("/api/update/install", methodOnly("POST", h.installUpdate))
 	mux.HandleFunc("/api/system", methodOnly("GET", h.getSystem))
+	mux.HandleFunc("/api/routing", h.routingHandler)
+	mux.HandleFunc("/api/routing/domains", h.routingDomainsHandler)
+	mux.HandleFunc("/api/routing/update-nets", methodOnly("POST", h.updateRoutingNets))
 
 	apiHandler := withAuth(deps.Username, deps.Password, withCORS(mux))
 

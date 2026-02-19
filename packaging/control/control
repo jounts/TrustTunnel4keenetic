@@ -5,6 +5,7 @@ Maintainer: TrustTunnel4keenetic
 Section: net
 Priority: optional
 Depends: curl, ca-certificates
+Recommends: dnsmasq-full, ipset
 Description: TrustTunnel VPN management wrapper for Keenetic routers.
  Web-based management panel with NDM hooks integration for the
  TrustTunnel VPN client. Provides start/stop/restart, configuration

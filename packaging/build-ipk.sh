@@ -54,8 +54,14 @@ chmod 755 "$DATA/opt/trusttunnel_client/trusttunnel-manager"
 # Copy scripts
 cp "$PROJECT_DIR/scripts/install.sh" "$DATA/opt/trusttunnel_client/"
 cp "$PROJECT_DIR/scripts/configure.sh" "$DATA/opt/trusttunnel_client/"
+cp "$PROJECT_DIR/scripts/smart-routing.sh" "$DATA/opt/trusttunnel_client/"
 chmod 755 "$DATA/opt/trusttunnel_client/install.sh"
 chmod 755 "$DATA/opt/trusttunnel_client/configure.sh"
+chmod 755 "$DATA/opt/trusttunnel_client/smart-routing.sh"
+
+# Create routing directory
+mkdir -p "$DATA/opt/trusttunnel_client/routing"
+mkdir -p "$DATA/opt/etc/dnsmasq.d"
 
 # Copy init scripts
 cp "$PROJECT_DIR/scripts/init.d/S98trusttunnel-manager" "$DATA/opt/etc/init.d/"

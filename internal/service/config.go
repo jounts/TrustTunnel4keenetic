@@ -23,13 +23,18 @@ type ModeInfo struct {
 	TunIdx   int    `json:"tun_idx"`
 	ProxyIdx int    `json:"proxy_idx"`
 	// Health check settings
-	HCEnabled        string `json:"hc_enabled"`
-	HCInterval       int    `json:"hc_interval"`
-	HCFailThreshold  int    `json:"hc_fail_threshold"`
-	HCGracePeriod    int    `json:"hc_grace_period"`
-	HCTargetURL      string `json:"hc_target_url"`
-	HCCurlTimeout    int    `json:"hc_curl_timeout"`
-	HCSocks5Proxy    string `json:"hc_socks5_proxy"`
+	HCEnabled       string `json:"hc_enabled"`
+	HCInterval      int    `json:"hc_interval"`
+	HCFailThreshold int    `json:"hc_fail_threshold"`
+	HCGracePeriod   int    `json:"hc_grace_period"`
+	HCTargetURL     string `json:"hc_target_url"`
+	HCCurlTimeout   int    `json:"hc_curl_timeout"`
+	HCSocks5Proxy   string `json:"hc_socks5_proxy"`
+	// Smart routing settings
+	SREnabled     string `json:"sr_enabled"`
+	SRHomeCountry string `json:"sr_home_country"`
+	SRDNSPort     int    `json:"sr_dns_port"`
+	SRDNSUpstream string `json:"sr_dns_upstream"`
 }
 
 type ConfigManager struct{}
@@ -80,6 +85,10 @@ func (c *ConfigManager) ReadMode() (*ModeInfo, error) {
 		HCTargetURL:     "http://connectivitycheck.gstatic.com/generate_204",
 		HCCurlTimeout:   5,
 		HCSocks5Proxy:   "127.0.0.1:1080",
+		SREnabled:       "no",
+		SRHomeCountry:   "RU",
+		SRDNSPort:       5354,
+		SRDNSUpstream:   "1.1.1.1",
 	}
 
 	for _, line := range strings.Split(string(data), "\n") {
@@ -115,6 +124,14 @@ func (c *ConfigManager) ReadMode() (*ModeInfo, error) {
 			info.HCCurlTimeout, _ = strconv.Atoi(val)
 		case "HC_SOCKS5_PROXY":
 			info.HCSocks5Proxy = val
+		case "SR_ENABLED":
+			info.SREnabled = val
+		case "SR_HOME_COUNTRY":
+			info.SRHomeCountry = val
+		case "SR_DNS_PORT":
+			info.SRDNSPort, _ = strconv.Atoi(val)
+		case "SR_DNS_UPSTREAM":
+			info.SRDNSUpstream = val
 		}
 	}
 
@@ -146,6 +163,41 @@ PROXY_IDX="%d"
 				content += line + "\n"
 			}
 		}
+	}
+
+	return os.WriteFile(modeConfigPath, []byte(content), 0644)
+}
+
+func (c *ConfigManager) WriteSRConfig(enabled, homeCountry, dnsUpstream string, dnsPort int) error {
+	srKeys := map[string]string{
+		"SR_ENABLED":      enabled,
+		"SR_HOME_COUNTRY": homeCountry,
+		"SR_DNS_PORT":     strconv.Itoa(dnsPort),
+		"SR_DNS_UPSTREAM": dnsUpstream,
+	}
+
+	var content string
+	existing, _ := os.ReadFile(modeConfigPath)
+	if len(existing) > 0 {
+		for _, line := range strings.Split(string(existing), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+				continue
+			}
+			parts := strings.SplitN(trimmed, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(parts[0])
+			if _, isSR := srKeys[key]; isSR {
+				continue
+			}
+			content += trimmed + "\n"
+		}
+	}
+
+	for k, v := range srKeys {
+		content += fmt.Sprintf("%s=\"%s\"\n", k, v)
 	}
 
 	return os.WriteFile(modeConfigPath, []byte(content), 0644)

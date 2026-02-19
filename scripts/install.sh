@@ -144,7 +144,22 @@ install_scripts() {
         chmod 755 "$HOOKS_DIR/$hook"
     done
 
+    info "Installing smart routing script..."
+    curl -fsSL "$base_url/smart-routing.sh" -o "$INSTALL_DIR/smart-routing.sh"
+    chmod 755 "$INSTALL_DIR/smart-routing.sh"
+
     info "All scripts and hooks installed"
+}
+
+install_smart_routing_deps() {
+    info "Installing smart routing dependencies (optional)..."
+    if command -v opkg > /dev/null 2>&1; then
+        opkg update > /dev/null 2>&1 || true
+        opkg install dnsmasq-full ipset 2>/dev/null && info "dnsmasq-full and ipset installed" || \
+            warn "Could not install dnsmasq-full/ipset. Smart routing will install them on first use."
+    else
+        warn "opkg not available, skipping smart routing deps"
+    fi
 }
 
 create_default_config() {
@@ -160,6 +175,10 @@ HC_GRACE_PERIOD="60"
 HC_TARGET_URL="http://connectivitycheck.gstatic.com/generate_204"
 HC_CURL_TIMEOUT="5"
 HC_SOCKS5_PROXY="127.0.0.1:1080"
+SR_ENABLED="no"
+SR_HOME_COUNTRY="RU"
+SR_DNS_PORT="5354"
+SR_DNS_UPSTREAM="1.1.1.1"
 MODECONF
         info "Default mode config created"
     fi
@@ -176,10 +195,12 @@ MGRCONF
 
 create_dirs() {
     mkdir -p "$INSTALL_DIR"
+    mkdir -p "$INSTALL_DIR/routing"
     mkdir -p /opt/var/run
     mkdir -p /opt/var/log
     mkdir -p "$INIT_DIR"
     mkdir -p "$HOOKS_DIR"
+    mkdir -p /opt/etc/dnsmasq.d
 }
 
 main() {
@@ -197,6 +218,7 @@ main() {
     download_manager "$arch"
     install_scripts
     create_default_config
+    install_smart_routing_deps
 
     echo ""
     info "Installation complete!"
