@@ -83,11 +83,11 @@ chmod 755 "$WORK/control/postinst" "$WORK/control/prerm"
 # Build .ipk (ar archive)
 echo "2.0" > "$WORK/debian-binary"
 
-cd "$WORK/control"
+cd "$PROJECT_DIR/$WORK/control"
 tar czf ../control.tar.gz ./*
-cd "$WORK/data"
+cd "$PROJECT_DIR/$WORK/data"
 tar czf ../data.tar.gz ./*
-cd "$WORK"
+cd "$PROJECT_DIR/$WORK"
 
 ar rc "$PROJECT_DIR/$BUILD_DIR/$PKG_NAME" debian-binary control.tar.gz data.tar.gz
 
