@@ -101,13 +101,37 @@ func (u *Updater) Install() (*UpdateResult, error) {
 	svcMgr.Control("stop")
 
 	log.Printf("[update] extracting to /opt/trusttunnel_client/")
-	cmd := exec.Command("tar", "xzf", tmpFile, "--strip-components=1", "-C", "/opt/trusttunnel_client/")
+	tmpDir := "/tmp/trusttunnel_extract"
+	os.RemoveAll(tmpDir)
+	os.MkdirAll(tmpDir, 0755)
+	defer os.RemoveAll(tmpDir)
+
+	cmd := exec.Command("tar", "xzf", tmpFile, "-C", tmpDir)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("[update] extract failed: %v: %s", err, string(out))
 		svcMgr.Control("start")
 		return nil, fmt.Errorf("extract: %w: %s", err, string(out))
 	}
 
+	// BusyBox tar has no --strip-components; find the binary inside extracted subdirectory
+	entries, _ := os.ReadDir(tmpDir)
+	srcDir := tmpDir
+	if len(entries) == 1 && entries[0].IsDir() {
+		srcDir = tmpDir + "/" + entries[0].Name()
+	}
+
+	srcBin := srcDir + "/trusttunnel_client"
+	if _, err := os.Stat(srcBin); err != nil {
+		svcMgr.Control("start")
+		return nil, fmt.Errorf("binary not found in archive at %s", srcBin)
+	}
+
+	// Copy binary (rename/move may fail across filesystems)
+	if out, err := exec.Command("cp", "-f", srcBin, clientBin).CombinedOutput(); err != nil {
+		log.Printf("[update] copy failed: %v: %s", err, string(out))
+		svcMgr.Control("start")
+		return nil, fmt.Errorf("copy binary: %w: %s", err, string(out))
+	}
 	os.Chmod(clientBin, 0755)
 	log.Printf("[update] starting TrustTunnel client")
 	svcMgr.Control("start")
