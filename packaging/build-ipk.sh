@@ -81,29 +81,51 @@ cp "$PROJECT_DIR/scripts/hooks/button.d/trusttunnel.sh" "$DATA/opt/etc/ndm/butto
 chmod 755 "$DATA"/opt/etc/ndm/*/trusttunnel*.sh
 chmod 755 "$DATA"/opt/etc/ndm/wan.d/010-trusttunnel.sh
 
-# Prepare control files
-sed -e "s/@VERSION@/$VERSION/g" -e "s/@ARCH@/$OPKG_ARCH/g" \
+# Prepare control files (strip any stray \r from Windows checkouts)
+sed -e "s/@VERSION@/$VERSION/g" -e "s/@ARCH@/$OPKG_ARCH/g" -e 's/\r$//' \
     "$SCRIPT_DIR/control/control" > "$WORK/control/control"
-cp "$SCRIPT_DIR/control/conffiles" "$WORK/control/"
-cp "$SCRIPT_DIR/control/postinst" "$WORK/control/"
-cp "$SCRIPT_DIR/control/prerm" "$WORK/control/"
+sed 's/\r$//' "$SCRIPT_DIR/control/conffiles" > "$WORK/control/conffiles"
+sed 's/\r$//' "$SCRIPT_DIR/control/postinst"  > "$WORK/control/postinst"
+sed 's/\r$//' "$SCRIPT_DIR/control/prerm"     > "$WORK/control/prerm"
 chmod 755 "$WORK/control/postinst" "$WORK/control/prerm"
 
 # Build .ipk (ar archive)
-echo "2.0" > "$WORK/debian-binary"
+printf "2.0\n" > "$WORK/debian-binary"
 
-cd "$PROJECT_DIR/$WORK/control"
-tar --format=gnu --numeric-owner --owner=0 --group=0 --sort=name -czf ../control.tar.gz ./*
-cd "$PROJECT_DIR/$WORK/data"
-tar --format=gnu --numeric-owner --owner=0 --group=0 --sort=name -czf ../data.tar.gz ./*
-cd "$PROJECT_DIR/$WORK"
+(cd "$WORK/control" && tar --format=gnu --numeric-owner --owner=0 --group=0 -czf ../control.tar.gz .)
+(cd "$WORK/data" && tar --format=gnu --numeric-owner --owner=0 --group=0 -czf ../data.tar.gz .)
 
-# opkg requires members in exact order: debian-binary, control.tar.gz, data.tar.gz
-ar rc "$PROJECT_DIR/$BUILD_DIR/$PKG_NAME" debian-binary control.tar.gz data.tar.gz
+PKG_FILE="$PROJECT_DIR/$BUILD_DIR/$PKG_NAME"
+rm -f "$PKG_FILE"
+
+# Construct ar archive manually for maximum opkg compatibility.
+# System `ar` may inject symbol tables that opkg's minimal parser rejects.
+ar_append_member() {
+    local archive="$1" file="$2" name="$3"
+    local size
+    size=$(wc -c < "$file")
+    size=$((size + 0))
+    printf '%-16s%-12s%-6s%-6s%-8s%-10s`\n' \
+        "${name}/" "0" "0" "0" "100644" "$size" >> "$archive"
+    cat "$file" >> "$archive"
+    [ $((size % 2)) -ne 0 ] && printf '\n' >> "$archive"
+}
+
+cd "$WORK"
+printf '!<arch>\n' > "$PKG_FILE"
+ar_append_member "$PKG_FILE" debian-binary   "debian-binary"
+ar_append_member "$PKG_FILE" control.tar.gz  "control.tar.gz"
+ar_append_member "$PKG_FILE" data.tar.gz     "data.tar.gz"
+
+echo "Package contents verification:"
+ar t "$PKG_FILE" || true
+echo "Control archive contents:"
+tar tzf control.tar.gz
 
 # Cleanup
 cd "$PROJECT_DIR"
 rm -rf "$WORK"
 
+echo ""
 echo "Built: $BUILD_DIR/$PKG_NAME"
 echo "Size: $(du -h "$BUILD_DIR/$PKG_NAME" | cut -f1)"

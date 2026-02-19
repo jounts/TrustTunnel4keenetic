@@ -1,0 +1,4 @@
+# Ensure shell scripts and packaging files always use LF line endings
+*.sh text eol=lf
+packaging/control/* text eol=lf
+scripts/** text eol=lf
