@@ -53,6 +53,9 @@ async function saveConfig() {
     mode_config: '',
   })
   if (result) {
+    if (result.client_config) {
+      clientConfigText.value = result.client_config
+    }
     saved.value = true
     setTimeout(() => { saved.value = false }, 3000)
   }
@@ -105,6 +108,12 @@ async function confirmModeChange() {
           Сохранить
         </button>
       </div>
+      <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
+        Можно вставить конфиг от эндпоинта как есть — при сохранении он будет автоматически
+        преобразован в формат клиента (добавлены <code class="text-gray-600 dark:text-gray-300">vpn_mode</code>,
+        секции <code class="text-gray-600 dark:text-gray-300">[endpoint]</code> и
+        <code class="text-gray-600 dark:text-gray-300">[listener.*]</code>).
+      </p>
       <textarea
         v-model="clientConfigText"
         rows="16"

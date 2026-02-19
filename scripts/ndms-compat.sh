@@ -8,10 +8,16 @@
 NDMS_VERSION_FILE="/tmp/ndm/version"
 NDMS_COMPAT_CACHE="/opt/var/run/tt_ndms_compat"
 
-# Detect NDMS major version (4 or 5)
+# Detect NDMS major version (3, 4 or 5)
 ndms_detect_version() {
     local ver
     ver=$(cat "$NDMS_VERSION_FILE" 2>/dev/null | head -n1)
+
+    # Fallback: query ndmc if version file is missing
+    if [ -z "$ver" ] && command -v ndmc > /dev/null 2>&1; then
+        ver=$(ndmc -c "show version" 2>/dev/null | grep "^\s*release:" | head -n1 | sed 's/.*:\s*//')
+    fi
+
     case "$ver" in
         5.*) echo "5" ;;
         4.*) echo "4" ;;

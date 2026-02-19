@@ -234,7 +234,7 @@ func ensureVpnMode(content string) string {
 
 // ensureEndpointSection wraps top-level endpoint fields in [endpoint] if that
 // section doesn't already exist. Handles the flat format exported by the
-// TrustTunnel endpoint binary.
+// TrustTunnel endpoint binary. Comments preceding endpoint fields are preserved.
 func ensureEndpointSection(content string) string {
 	if strings.Contains(content, "[endpoint]") {
 		return content
@@ -248,8 +248,9 @@ func ensureEndpointSection(content string) string {
 	}
 
 	lines := strings.Split(content, "\n")
-	var topLines []string       // lines before endpoint fields
-	var endpointLines []string  // endpoint key-value lines
+	var topLines []string
+	var endpointLines []string
+	var pendingComments []string // comments/blanks before a key-value line
 	inMultiline := false
 
 	for _, line := range lines {
@@ -263,8 +264,17 @@ func ensureEndpointSection(content string) string {
 			continue
 		}
 
+		// Section headers always go to topLines
 		if strings.HasPrefix(trimmed, "[") {
+			topLines = append(topLines, pendingComments...)
+			pendingComments = nil
 			topLines = append(topLines, line)
+			continue
+		}
+
+		// Comments and blank lines: buffer until we see a key
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			pendingComments = append(pendingComments, line)
 			continue
 		}
 
@@ -274,6 +284,8 @@ func ensureEndpointSection(content string) string {
 		}
 
 		if endpointKeys[key] {
+			endpointLines = append(endpointLines, pendingComments...)
+			pendingComments = nil
 			endpointLines = append(endpointLines, line)
 			val := ""
 			if eqIdx := strings.Index(trimmed, "="); eqIdx > 0 {
@@ -283,9 +295,13 @@ func ensureEndpointSection(content string) string {
 				inMultiline = true
 			}
 		} else {
+			topLines = append(topLines, pendingComments...)
+			pendingComments = nil
 			topLines = append(topLines, line)
 		}
 	}
+	// Flush remaining pending comments
+	topLines = append(topLines, pendingComments...)
 
 	if len(endpointLines) == 0 {
 		return content

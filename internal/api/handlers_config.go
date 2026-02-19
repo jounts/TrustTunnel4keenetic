@@ -43,7 +43,12 @@ func (h *handlers) putConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"status": "saved"})
+	// Return the transformed config so the UI can update
+	cfg, _ := h.deps.ConfigManager.ReadAll()
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"status":        "saved",
+		"client_config": cfg.ClientConfig,
+	})
 }
 
 func (h *handlers) getMode(w http.ResponseWriter, r *http.Request) {
