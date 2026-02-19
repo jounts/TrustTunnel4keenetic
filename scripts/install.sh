@@ -61,7 +61,11 @@ check_prerequisites() {
 get_latest_version() {
     local repo="$1"
     local version
+    # Try stable release first, fallback to any release (including pre-releases)
     version=$(curl -s "$GITHUB_API/$repo/releases/latest" | grep '"tag_name"' | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+    if [ -z "$version" ]; then
+        version=$(curl -s "$GITHUB_API/$repo/releases?per_page=1" | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')
+    fi
     echo "$version"
 }
 
@@ -111,13 +115,30 @@ download_client() {
         error "Failed to get latest client version"
     fi
 
-    local url="https://github.com/$CLIENT_REPO/releases/download/$version/trusttunnel_client-linux-${client_arch}.tar.gz"
+    local url="https://github.com/$CLIENT_REPO/releases/download/$version/trusttunnel_client-${version}-linux-${client_arch}.tar.gz"
     local tmp="/tmp/tt_client.tar.gz"
+    local tmpdir="/tmp/tt_client_extract"
 
     curl -fsSL "$url" -o "$tmp" || error "Client download failed"
-    tar xzf "$tmp" -C "$INSTALL_DIR/" || error "Failed to extract client"
+
+    # BusyBox tar has no --strip-components; extract to temp dir and copy binary
+    rm -rf "$tmpdir"
+    mkdir -p "$tmpdir"
+    tar xzf "$tmp" -C "$tmpdir" || error "Failed to extract client"
     rm -f "$tmp"
+
+    local bin=$(find "$tmpdir" -name "trusttunnel_client" -type f | head -1)
+    if [ -z "$bin" ]; then
+        rm -rf "$tmpdir"
+        error "trusttunnel_client binary not found in archive"
+    fi
+    cp -f "$bin" "$INSTALL_DIR/trusttunnel_client"
     chmod 755 "$INSTALL_DIR/trusttunnel_client"
+
+    # Save version for the web manager
+    echo "$version" > "$INSTALL_DIR/.client_version"
+
+    rm -rf "$tmpdir"
     info "Client $version installed"
 }
 
