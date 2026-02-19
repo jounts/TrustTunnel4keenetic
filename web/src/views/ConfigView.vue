@@ -11,6 +11,18 @@ const saved = ref(false)
 const modeChanging = ref(false)
 const showModeWarning = ref(false)
 const pendingMode = ref('')
+const configPlaceholder = `# Пример конфигурации TrustTunnel Client
+# Заполните и нажмите «Сохранить»
+
+vpn_mode = 1  # 1 = SOCKS5, 2 = TUN
+
+[server]
+address = "your-server.example.com"
+port = 443
+
+[auth]
+login = "your_login"
+password = "your_password"`
 
 onMounted(async () => {
   config.value = await api.getConfig()
@@ -83,6 +95,7 @@ async function confirmModeChange() {
         rows="16"
         class="w-full font-mono text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 resize-y"
         spellcheck="false"
+        :placeholder="configPlaceholder"
       />
       <p v-if="saved" class="mt-2 text-sm text-green-600 dark:text-green-400">Конфигурация сохранена</p>
     </div>
