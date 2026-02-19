@@ -5,6 +5,7 @@ import { useApi, type UpdateInfo } from '@/composables/useApi'
 const api = useApi()
 const updateInfo = ref<UpdateInfo | null>(null)
 const installing = ref(false)
+const installStatus = ref('')
 const installResult = ref<string | null>(null)
 
 onMounted(async () => {
@@ -19,7 +20,9 @@ async function checkForUpdates() {
 async function doInstall() {
   installing.value = true
   installResult.value = null
+  installStatus.value = 'Скачивание (~5 МБ), это может занять несколько минут...'
   const result = await api.installUpdate()
+  installStatus.value = ''
   if (result) {
     installResult.value = result.message || 'Обновлено'
     await checkForUpdates()
@@ -82,6 +85,9 @@ async function doInstall() {
             </svg>
             {{ installing ? 'Установка...' : 'Установить обновление' }}
           </button>
+          <p v-if="installStatus" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {{ installStatus }}
+          </p>
         </div>
       </div>
 
