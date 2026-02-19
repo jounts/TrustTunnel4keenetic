@@ -108,7 +108,9 @@ ar_append_member() {
     printf '%-16s%-12s%-6s%-6s%-8s%-10s`\n' \
         "${name}/" "0" "0" "0" "100644" "$size" >> "$archive"
     cat "$file" >> "$archive"
-    [ $((size % 2)) -ne 0 ] && printf '\n' >> "$archive"
+    if [ $((size % 2)) -ne 0 ]; then
+        printf '\n' >> "$archive"
+    fi
 }
 
 cd "$WORK"
