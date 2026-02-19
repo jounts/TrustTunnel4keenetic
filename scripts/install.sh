@@ -206,9 +206,9 @@ create_dirs() {
     mkdir -p "$INSTALL_DIR/routing"
     mkdir -p /opt/var/run
     mkdir -p /opt/var/log
-    mkdir -p /opt/etc/dnsmasq.d
     mkdir -p "$INIT_DIR"
     mkdir -p "$HOOKS_DIR"
+    mkdir -p /opt/etc/dnsmasq.d
 }
 
 main() {

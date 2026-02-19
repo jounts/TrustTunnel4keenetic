@@ -36,8 +36,8 @@ func main() {
 	cfgManager := service.NewConfigManager()
 	updater := service.NewUpdater()
 	ndmClient := ndm.NewClient("http://localhost:79")
-	sysInfo := platform.NewInfo()
 	routingMgr := routing.NewManager()
+	sysInfo := platform.NewInfo()
 
 	var staticFS http.FileSystem
 	if *devMode {
@@ -56,8 +56,8 @@ func main() {
 		ConfigManager:  cfgManager,
 		Updater:        updater,
 		NDMClient:      ndmClient,
-		SystemInfo:     sysInfo,
 		RoutingManager: routingMgr,
+		SystemInfo:     sysInfo,
 		StaticFS:       staticFS,
 		Username:       cfg.username,
 		Password:       cfg.password,

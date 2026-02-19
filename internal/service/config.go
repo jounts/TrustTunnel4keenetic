@@ -199,3 +199,4 @@ PROXY_IDX="%d"
 
 	return os.WriteFile(modeConfigPath, []byte(content), 0644)
 }
+

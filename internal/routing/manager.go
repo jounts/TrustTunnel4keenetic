@@ -99,7 +99,6 @@ func (m *Manager) reloadDnsmasq() error {
 }
 
 func (m *Manager) runScript(fn string) (string, error) {
-	// Source both compat and smart-routing scripts, then call the function
 	cmd := fmt.Sprintf(
 		`. /opt/trusttunnel_client/ndms-compat.sh 2>/dev/null; `+
 			`. /opt/trusttunnel_client/mode.conf 2>/dev/null; `+
@@ -114,7 +113,6 @@ func (m *Manager) runScript(fn string) (string, error) {
 }
 
 func (m *Manager) ipsetCount(name string) int {
-	// Try ipset first, fall back to nft
 	out, err := exec.Command("ipset", "list", name, "-t").CombinedOutput()
 	if err == nil {
 		for _, line := range strings.Split(string(out), "\n") {
@@ -128,7 +126,6 @@ func (m *Manager) ipsetCount(name string) int {
 		}
 	}
 
-	// Try nft
 	out, err = exec.Command("nft", "list", "set", "ip", "trusttunnel", name).CombinedOutput()
 	if err == nil {
 		count := 0
@@ -152,7 +149,6 @@ func (m *Manager) isDnsmasqRunning() bool {
 	if pid == "" {
 		return false
 	}
-	// Check if process is running
 	_, err = os.Stat(fmt.Sprintf("/proc/%s", pid))
 	return err == nil
 }

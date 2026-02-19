@@ -15,8 +15,8 @@ type Dependencies struct {
 	ConfigManager  *service.ConfigManager
 	Updater        *service.Updater
 	NDMClient      *ndm.Client
-	SystemInfo     *platform.Info
 	RoutingManager *routing.Manager
+	SystemInfo     *platform.Info
 	StaticFS       http.FileSystem
 	Username       string
 	Password       string
