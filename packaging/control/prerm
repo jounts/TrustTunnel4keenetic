@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# Stop services before removal
+/opt/etc/init.d/S99trusttunnel stop 2>/dev/null || true
+/opt/etc/init.d/S98trusttunnel-manager stop 2>/dev/null || true
+
+# Clean up PID files
+rm -f /opt/var/run/trusttunnel.pid
+rm -f /opt/var/run/trusttunnel_watchdog.pid
+rm -f /opt/var/run/trusttunnel_manager.pid
+rm -f /opt/var/run/trusttunnel_start_ts
+rm -f /opt/var/run/trusttunnel_hc_state
+rm -f /opt/var/run/trusttunnel_status.json
+
+exit 0

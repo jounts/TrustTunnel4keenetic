@@ -1,0 +1,275 @@
+#!/bin/sh
+
+ENABLED=yes
+PROCS="trusttunnel_client"
+DESC="TrustTunnel VPN Client"
+CALLER="$0"
+
+TT_DIR="/opt/trusttunnel_client"
+TT_BIN="$TT_DIR/trusttunnel_client"
+TT_CONF="$TT_DIR/trusttunnel_client.toml"
+MODE_CONF="$TT_DIR/mode.conf"
+LOG_FILE="/opt/var/log/trusttunnel.log"
+PID_FILE="/opt/var/run/trusttunnel.pid"
+WATCHDOG_PID_FILE="/opt/var/run/trusttunnel_watchdog.pid"
+START_TS_FILE="/opt/var/run/trusttunnel_start_ts"
+HC_STATE_FILE="/opt/var/run/trusttunnel_hc_state"
+STATUS_JSON="/opt/var/run/trusttunnel_status.json"
+
+MAX_LOG_SIZE=1048576  # 1 MB
+
+TT_MODE="socks5"
+TUN_IDX=0
+PROXY_IDX=0
+HC_ENABLED="yes"
+HC_INTERVAL=30
+HC_FAIL_THRESHOLD=3
+HC_GRACE_PERIOD=60
+HC_TARGET_URL="http://connectivitycheck.gstatic.com/generate_204"
+HC_CURL_TIMEOUT=5
+HC_SOCKS5_PROXY="127.0.0.1:1080"
+
+load_config() {
+    [ -f "$MODE_CONF" ] && . "$MODE_CONF"
+}
+
+rotate_log() {
+    if [ -f "$LOG_FILE" ]; then
+        local size=$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)
+        if [ "$size" -gt "$MAX_LOG_SIZE" ]; then
+            mv "$LOG_FILE" "${LOG_FILE}.1"
+        fi
+    fi
+}
+
+log_msg() {
+    local ts=$(date '+%Y-%m-%d %H:%M:%S')
+    echo "[$ts] $*" >> "$LOG_FILE"
+}
+
+write_status_json() {
+    local running="false"
+    local pid=0
+    local uptime=0
+
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+        running="true"
+        pid=$(cat "$PID_FILE")
+        if [ -f "$START_TS_FILE" ]; then
+            local start_ts=$(cat "$START_TS_FILE")
+            local now=$(date +%s)
+            uptime=$((now - start_ts))
+        fi
+    fi
+
+    local hc_state="unknown"
+    [ -f "$HC_STATE_FILE" ] && hc_state=$(cat "$HC_STATE_FILE")
+
+    cat > "$STATUS_JSON" << EOF
+{
+  "running": $running,
+  "pid": $pid,
+  "uptime_seconds": $uptime,
+  "mode": "$TT_MODE",
+  "health_check": "$hc_state",
+  "timestamp": $(date +%s)
+}
+EOF
+}
+
+setup_tun_interface() {
+    local tun_name="OpkgTun${TUN_IDX}"
+    log_msg "Setting up TUN interface: $tun_name"
+
+    ndmc -c "interface $tun_name"
+    ndmc -c "interface $tun_name description \"TrustTunnel TUN $TUN_IDX\""
+    ndmc -c "interface $tun_name ip address 172.16.219.2 255.255.255.255"
+    ndmc -c "interface $tun_name ip global auto"
+    ndmc -c "interface $tun_name ip mtu 1280"
+    ndmc -c "interface $tun_name ip tcp adjust-mss pmtu"
+    ndmc -c "interface $tun_name security-level public"
+    ndmc -c "interface $tun_name up"
+
+    local retries=0
+    while [ $retries -lt 30 ]; do
+        if ip link show "nwg${TUN_IDX}" > /dev/null 2>&1; then
+            ip link set "nwg${TUN_IDX}" name "tun${TUN_IDX}"
+            log_msg "Renamed nwg${TUN_IDX} to tun${TUN_IDX}"
+            break
+        fi
+        sleep 1
+        retries=$((retries + 1))
+    done
+}
+
+setup_proxy_interface() {
+    local proxy_name="Proxy${PROXY_IDX}"
+    log_msg "Setting up Proxy interface: $proxy_name"
+
+    ndmc -c "interface $proxy_name"
+    ndmc -c "interface $proxy_name description \"TrustTunnel Proxy $PROXY_IDX\""
+    ndmc -c "interface $proxy_name proxy protocol socks5"
+    ndmc -c "interface $proxy_name proxy upstream 127.0.0.1 1080"
+    ndmc -c "interface $proxy_name proxy connect"
+    ndmc -c "interface $proxy_name ip global auto"
+    ndmc -c "interface $proxy_name security-level public"
+    ndmc -c "system configuration save"
+}
+
+start_client() {
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+        log_msg "Already running (PID $(cat "$PID_FILE"))"
+        return 0
+    fi
+
+    rotate_log
+    load_config
+
+    log_msg "Starting TrustTunnel client in $TT_MODE mode"
+
+    if [ "$TT_MODE" = "tun" ]; then
+        setup_tun_interface
+        "$TT_BIN" --config "$TT_CONF" >> "$LOG_FILE" 2>&1 &
+    else
+        "$TT_BIN" --config "$TT_CONF" >> "$LOG_FILE" 2>&1 &
+        sleep 2
+        setup_proxy_interface
+    fi
+
+    local pid=$!
+    echo "$pid" > "$PID_FILE"
+    date +%s > "$START_TS_FILE"
+    log_msg "Started with PID $pid"
+
+    write_status_json
+    start_watchdog
+}
+
+stop_client() {
+    stop_watchdog
+
+    if [ -f "$PID_FILE" ]; then
+        local pid=$(cat "$PID_FILE")
+        if kill -0 "$pid" 2>/dev/null; then
+            log_msg "Stopping TrustTunnel (PID $pid)"
+            kill "$pid"
+            local i=0
+            while [ $i -lt 10 ] && kill -0 "$pid" 2>/dev/null; do
+                sleep 1
+                i=$((i + 1))
+            done
+            kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+        fi
+        rm -f "$PID_FILE"
+    fi
+
+    rm -f "$START_TS_FILE" "$HC_STATE_FILE"
+    write_status_json
+    log_msg "Stopped"
+}
+
+health_check() {
+    if [ "$HC_ENABLED" != "yes" ]; then
+        echo "ok" > "$HC_STATE_FILE"
+        return 0
+    fi
+
+    local curl_opts="--connect-timeout $HC_CURL_TIMEOUT -s -o /dev/null -w %{http_code}"
+    if [ "$TT_MODE" = "socks5" ]; then
+        curl_opts="$curl_opts --proxy socks5h://$HC_SOCKS5_PROXY"
+    fi
+
+    local code
+    code=$(curl $curl_opts "$HC_TARGET_URL" 2>/dev/null)
+
+    if [ "$code" = "204" ] || [ "$code" = "200" ]; then
+        echo "ok" > "$HC_STATE_FILE"
+        return 0
+    else
+        echo "fail" > "$HC_STATE_FILE"
+        return 1
+    fi
+}
+
+watchdog_loop() {
+    local fail_count=0
+
+    sleep "$HC_GRACE_PERIOD"
+
+    while true; do
+        if [ ! -f "$PID_FILE" ] || ! kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+            log_msg "Watchdog: process died, restarting"
+            start_client
+            fail_count=0
+            sleep "$HC_GRACE_PERIOD"
+            continue
+        fi
+
+        if ! health_check; then
+            fail_count=$((fail_count + 1))
+            log_msg "Watchdog: health check failed ($fail_count/$HC_FAIL_THRESHOLD)"
+            if [ "$fail_count" -ge "$HC_FAIL_THRESHOLD" ]; then
+                log_msg "Watchdog: threshold reached, restarting"
+                stop_client
+                sleep 3
+                start_client
+                fail_count=0
+                sleep "$HC_GRACE_PERIOD"
+                continue
+            fi
+        else
+            fail_count=0
+        fi
+
+        write_status_json
+        sleep "$HC_INTERVAL"
+    done
+}
+
+start_watchdog() {
+    stop_watchdog
+    load_config
+    watchdog_loop &
+    echo "$!" > "$WATCHDOG_PID_FILE"
+    log_msg "Watchdog started (PID $!)"
+}
+
+stop_watchdog() {
+    if [ -f "$WATCHDOG_PID_FILE" ]; then
+        local pid=$(cat "$WATCHDOG_PID_FILE")
+        kill "$pid" 2>/dev/null
+        rm -f "$WATCHDOG_PID_FILE"
+    fi
+}
+
+case "$1" in
+    start)
+        start_client
+        ;;
+    stop)
+        stop_client
+        ;;
+    restart)
+        stop_client
+        sleep 2
+        start_client
+        ;;
+    reload)
+        load_config
+        log_msg "Configuration reloaded"
+        ;;
+    status)
+        write_status_json
+        cat "$STATUS_JSON" 2>/dev/null
+        ;;
+    check)
+        health_check
+        echo "Health: $(cat "$HC_STATE_FILE" 2>/dev/null)"
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|reload|status|check}"
+        exit 1
+        ;;
+esac
+
+exit 0

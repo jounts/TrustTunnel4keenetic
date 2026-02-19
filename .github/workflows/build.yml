@@ -1,0 +1,132 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: mipsle
+            gomips: softfloat
+            arch_name: mipsel
+            binary_suffix: linux-mipsel
+          - goos: linux
+            goarch: mips
+            gomips: softfloat
+            arch_name: mips
+            binary_suffix: linux-mips
+          - goos: linux
+            goarch: arm64
+            gomips: ""
+            arch_name: aarch64
+            binary_suffix: linux-aarch64
+          - goos: linux
+            goarch: arm
+            goarm: "7"
+            gomips: ""
+            arch_name: armv7
+            binary_suffix: linux-armv7
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build Vue SPA
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build Go binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOMIPS: ${{ matrix.gomips }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${GITHUB_REF_NAME:-dev}"
+          go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" \
+            -o build/trusttunnel-manager-${{ matrix.binary_suffix }} \
+            ./cmd/trusttunnel-manager
+
+      - name: Build IPK package
+        run: |
+          VERSION="${GITHUB_REF_NAME:-dev}"
+          chmod +x packaging/build-ipk.sh
+          ./packaging/build-ipk.sh ${{ matrix.arch_name }} "$VERSION"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.arch_name }}
+          path: |
+            build/trusttunnel-manager-${{ matrix.binary_suffix }}
+            build/*.ipk
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find artifacts -type f \( -name '*.ipk' -o -name 'trusttunnel-manager-*' \) -exec cp {} release/ \;
+          ls -la release/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            ## TrustTunnel Manager for Keenetic
+
+            ### Installation
+
+            **Via OPKG (recommended):**
+            ```bash
+            # Download the .ipk for your architecture
+            opkg install trusttunnel-manager_${{ github.ref_name }}_<arch>.ipk
+            ```
+
+            **Via install script:**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/jounts/TrustTunnel4keenetic/main/scripts/install.sh | sh
+            ```
+
+            ### Architectures
+            - `mipsel` — most Keenetic models (KN-1810, KN-1010, etc.)
+            - `mips` — older models
+            - `aarch64` — Keenetic Peak, Ultra (KN-1811, KN-1810 v2)
+            - `armv7` — some models with ARM CPU
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

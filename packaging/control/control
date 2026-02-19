@@ -1,0 +1,12 @@
+Package: trusttunnel-manager
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: TrustTunnel4keenetic
+Section: net
+Priority: optional
+Depends: curl, ca-certificates
+Description: TrustTunnel VPN management wrapper for Keenetic routers.
+ Web-based management panel with NDM hooks integration for the
+ TrustTunnel VPN client. Provides start/stop/restart, configuration
+ editing, log viewing, health monitoring, and automatic updates.
+Homepage: https://github.com/jounts/TrustTunnel4keenetic

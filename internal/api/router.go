@@ -1,0 +1,94 @@
+package api
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/jounts/TrustTunnel4keenetic/internal/ndm"
+	"github.com/jounts/TrustTunnel4keenetic/internal/platform"
+	"github.com/jounts/TrustTunnel4keenetic/internal/service"
+)
+
+type Dependencies struct {
+	ServiceManager *service.Manager
+	ConfigManager  *service.ConfigManager
+	Updater        *service.Updater
+	NDMClient      *ndm.Client
+	SystemInfo     *platform.Info
+	StaticFS       http.FileSystem
+	Username       string
+	Password       string
+}
+
+func NewRouter(deps Dependencies) http.Handler {
+	mux := http.NewServeMux()
+	h := &handlers{deps: deps}
+
+	mux.HandleFunc("/api/status", methodOnly("GET", h.getStatus))
+	mux.HandleFunc("/api/service/", methodOnly("POST", h.serviceAction))
+	mux.HandleFunc("/api/config", h.configHandler)
+	mux.HandleFunc("/api/mode", h.modeHandler)
+	mux.HandleFunc("/api/logs", methodOnly("GET", h.getLogs))
+	mux.HandleFunc("/api/logs/stream", h.streamLogs)
+	mux.HandleFunc("/api/update/check", methodOnly("GET", h.checkUpdate))
+	mux.HandleFunc("/api/update/install", methodOnly("POST", h.installUpdate))
+	mux.HandleFunc("/api/system", methodOnly("GET", h.getSystem))
+
+	apiHandler := withAuth(deps.Username, deps.Password, withCORS(mux))
+
+	root := http.NewServeMux()
+	root.Handle("/api/", apiHandler)
+	root.Handle("/", spaHandler(deps.StaticFS))
+
+	return withLogging(root)
+}
+
+type handlers struct {
+	deps Dependencies
+}
+
+func (h *handlers) configHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.getConfig(w, r)
+	case http.MethodPut:
+		h.putConfig(w, r)
+	case http.MethodOptions:
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (h *handlers) modeHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.getMode(w, r)
+	case http.MethodPut:
+		h.putMode(w, r)
+	case http.MethodOptions:
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func methodOnly(method string, handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		if r.Method != method {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		handler(w, r)
+	}
+}
+
+func extractPathSuffix(path, prefix string) string {
+	s := strings.TrimPrefix(path, prefix)
+	s = strings.TrimSuffix(s, "/")
+	return s
+}

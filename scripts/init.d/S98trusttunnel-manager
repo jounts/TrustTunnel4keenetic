@@ -1,0 +1,69 @@
+#!/bin/sh
+
+ENABLED=yes
+PROCS="trusttunnel-manager"
+DESC="TrustTunnel Web Manager"
+
+MANAGER_BIN="/opt/trusttunnel_client/trusttunnel-manager"
+MANAGER_CONF="/opt/trusttunnel_client/manager.conf"
+PID_FILE="/opt/var/run/trusttunnel_manager.pid"
+LOG_FILE="/opt/var/log/trusttunnel_manager.log"
+
+start() {
+    if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+        echo "$DESC already running"
+        return 0
+    fi
+
+    echo "Starting $DESC..."
+    "$MANAGER_BIN" -config "$MANAGER_CONF" >> "$LOG_FILE" 2>&1 &
+    echo "$!" > "$PID_FILE"
+    echo "$DESC started (PID $!)"
+}
+
+stop() {
+    if [ -f "$PID_FILE" ]; then
+        local pid=$(cat "$PID_FILE")
+        if kill -0 "$pid" 2>/dev/null; then
+            echo "Stopping $DESC (PID $pid)..."
+            kill "$pid"
+            local i=0
+            while [ $i -lt 5 ] && kill -0 "$pid" 2>/dev/null; do
+                sleep 1
+                i=$((i + 1))
+            done
+            kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+        fi
+        rm -f "$PID_FILE"
+        echo "$DESC stopped"
+    else
+        echo "$DESC not running"
+    fi
+}
+
+case "$1" in
+    start)
+        start
+        ;;
+    stop)
+        stop
+        ;;
+    restart)
+        stop
+        sleep 1
+        start
+        ;;
+    status)
+        if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
+            echo "$DESC running (PID $(cat "$PID_FILE"))"
+        else
+            echo "$DESC not running"
+        fi
+        ;;
+    *)
+        echo "Usage: $0 {start|stop|restart|status}"
+        exit 1
+        ;;
+esac
+
+exit 0
