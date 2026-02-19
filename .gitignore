@@ -1,0 +1,39 @@
+# Go
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+vendor/
+
+# Vue / Node
+web/node_modules/
+web/dist/
+web/.vite/
+*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+/build/
+*.ipk
+*.tar.gz
+
+# Config (local dev)
+*.conf
+!packaging/control/*
+
+# Logs
+*.log
