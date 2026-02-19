@@ -116,8 +116,10 @@ func (u *Updater) Install() (*UpdateResult, error) {
 	// BusyBox tar has no --strip-components; find the binary inside extracted subdirectory
 	entries, _ := os.ReadDir(tmpDir)
 	srcDir := tmpDir
+	dirName := ""
 	if len(entries) == 1 && entries[0].IsDir() {
-		srcDir = tmpDir + "/" + entries[0].Name()
+		dirName = entries[0].Name()
+		srcDir = tmpDir + "/" + dirName
 	}
 
 	srcBin := srcDir + "/trusttunnel_client"
@@ -126,18 +128,23 @@ func (u *Updater) Install() (*UpdateResult, error) {
 		return nil, fmt.Errorf("binary not found in archive at %s", srcBin)
 	}
 
-	// Copy binary (rename/move may fail across filesystems)
 	if out, err := exec.Command("cp", "-f", srcBin, clientBin).CombinedOutput(); err != nil {
 		log.Printf("[update] copy failed: %v: %s", err, string(out))
 		svcMgr.Control("start")
 		return nil, fmt.Errorf("copy binary: %w: %s", err, string(out))
 	}
 	os.Chmod(clientBin, 0755)
+
+	// Parse version from directory name (e.g. "trusttunnel_client-v0.99.105-linux-aarch64")
+	newVer := parseVersionFromDirName(dirName)
+	if newVer != "" {
+		os.WriteFile(clientVersionFile, []byte(newVer+"\n"), 0644)
+		log.Printf("[update] saved client version: %s", newVer)
+	}
+
 	log.Printf("[update] starting TrustTunnel client")
 	svcMgr.Control("start")
-
-	newVer := detectClientVersion()
-	log.Printf("[update] complete, new version: %s", newVer)
+	log.Printf("[update] complete, version: %s", newVer)
 	return &UpdateResult{
 		Success: true,
 		Message: "Updated successfully",

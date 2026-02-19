@@ -10,12 +10,13 @@ import (
 )
 
 const (
-	initScript     = "/opt/etc/init.d/S99trusttunnel"
-	pidFile        = "/opt/var/run/trusttunnel.pid"
-	watchdogPID    = "/opt/var/run/trusttunnel_watchdog.pid"
-	hcStateFile    = "/opt/var/run/trusttunnel_hc_state"
-	startTSFile    = "/opt/var/run/trusttunnel_start_ts"
-	clientBin      = "/opt/trusttunnel_client/trusttunnel_client"
+	initScript        = "/opt/etc/init.d/S99trusttunnel"
+	pidFile           = "/opt/var/run/trusttunnel.pid"
+	watchdogPID       = "/opt/var/run/trusttunnel_watchdog.pid"
+	hcStateFile       = "/opt/var/run/trusttunnel_hc_state"
+	startTSFile       = "/opt/var/run/trusttunnel_start_ts"
+	clientBin         = "/opt/trusttunnel_client/trusttunnel_client"
+	clientVersionFile = "/opt/trusttunnel_client/.client_version"
 )
 
 type ServiceStatus struct {
@@ -106,10 +107,24 @@ func readFileStr(path string) string {
 }
 
 func detectClientVersion() string {
-	cmd := exec.Command(clientBin, "--version")
-	out, err := cmd.Output()
-	if err != nil {
-		return "unknown"
+	if data, err := os.ReadFile(clientVersionFile); err == nil {
+		if v := strings.TrimSpace(string(data)); v != "" {
+			return v
+		}
 	}
-	return strings.TrimSpace(string(out))
+	if _, err := os.Stat(clientBin); err == nil {
+		return "installed"
+	}
+	return "unknown"
+}
+
+// parseVersionFromDirName extracts version from archive directory name
+// e.g. "trusttunnel_client-v0.99.105-linux-aarch64" → "v0.99.105"
+func parseVersionFromDirName(name string) string {
+	name = strings.TrimPrefix(name, "trusttunnel_client-")
+	parts := strings.SplitN(name, "-", 2)
+	if len(parts) > 0 && strings.HasPrefix(parts[0], "v") {
+		return parts[0]
+	}
+	return ""
 }
