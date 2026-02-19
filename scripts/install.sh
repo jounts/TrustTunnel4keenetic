@@ -125,7 +125,7 @@ install_scripts() {
     info "Installing init scripts..."
 
     # Fetch scripts from GitHub release or use embedded
-    local base_url="https://raw.githubusercontent.com/$MANAGER_REPO/main/scripts"
+    local base_url="https://raw.githubusercontent.com/$MANAGER_REPO/master/scripts"
 
     curl -fsSL "$base_url/init.d/S99trusttunnel" -o "$INIT_DIR/S99trusttunnel"
     chmod 755 "$INIT_DIR/S99trusttunnel"

@@ -27,7 +27,7 @@
 ### Быстрая установка (curl)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/jounts/TrustTunnel4keenetic/main/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/jounts/TrustTunnel4keenetic/master/scripts/install.sh | sh
 ```
 
 ### Установка через OPKG
