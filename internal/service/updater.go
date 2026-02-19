@@ -153,6 +153,7 @@ func (u *Updater) Install() (*UpdateResult, error) {
 }
 
 func (u *Updater) latestRelease(repo string) (string, error) {
+	// Try /releases/latest first (skips pre-releases)
 	url := fmt.Sprintf("%s/%s/releases/latest", githubAPI, repo)
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
@@ -163,13 +164,37 @@ func (u *Updater) latestRelease(repo string) (string, error) {
 	}
 	defer resp.Body.Close()
 
-	var release struct {
-		TagName string `json:"tag_name"`
+	if resp.StatusCode == http.StatusOK {
+		var release struct {
+			TagName string `json:"tag_name"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&release); err == nil && release.TagName != "" {
+			return release.TagName, nil
+		}
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+	resp.Body.Close()
+
+	// Fallback: get first release from the list (includes pre-releases)
+	url = fmt.Sprintf("%s/%s/releases?per_page=1", githubAPI, repo)
+	req, _ = http.NewRequest("GET", url, nil)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+
+	resp, err = u.httpClient.Do(req)
+	if err != nil {
 		return "", err
 	}
-	return release.TagName, nil
+	defer resp.Body.Close()
+
+	var releases []struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return "", err
+	}
+	if len(releases) == 0 {
+		return "", fmt.Errorf("no releases found")
+	}
+	return releases[0].TagName, nil
 }
 
 func (u *Updater) findAssetURL(repo, prefix, suffix string) (string, error) {
