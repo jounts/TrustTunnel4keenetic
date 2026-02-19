@@ -3,6 +3,8 @@ set -e
 
 ARCH="$1"
 VERSION="${2:-dev}"
+# Strip leading 'v' prefix for Debian-compatible versioning
+VERSION="${VERSION#v}"
 BUILD_DIR="build"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
@@ -91,11 +93,12 @@ chmod 755 "$WORK/control/postinst" "$WORK/control/prerm"
 echo "2.0" > "$WORK/debian-binary"
 
 cd "$PROJECT_DIR/$WORK/control"
-tar czf ../control.tar.gz ./*
+tar --format=gnu --numeric-owner --owner=0 --group=0 --sort=name -czf ../control.tar.gz ./*
 cd "$PROJECT_DIR/$WORK/data"
-tar czf ../data.tar.gz ./*
+tar --format=gnu --numeric-owner --owner=0 --group=0 --sort=name -czf ../data.tar.gz ./*
 cd "$PROJECT_DIR/$WORK"
 
+# opkg requires members in exact order: debian-binary, control.tar.gz, data.tar.gz
 ar rc "$PROJECT_DIR/$BUILD_DIR/$PKG_NAME" debian-binary control.tar.gz data.tar.gz
 
 # Cleanup
