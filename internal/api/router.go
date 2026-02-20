@@ -29,7 +29,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/service/", methodOnly("POST", h.serviceAction))
 	mux.HandleFunc("/api/config", h.configHandler)
 	mux.HandleFunc("/api/mode", h.modeHandler)
-	mux.HandleFunc("/api/logs", methodOnly("GET", h.getLogs))
+	mux.HandleFunc("/api/logs", h.logsHandler)
 	mux.HandleFunc("/api/logs/stream", h.streamLogs)
 	mux.HandleFunc("/api/update/check", methodOnly("GET", h.checkUpdate))
 	mux.HandleFunc("/api/update/install", methodOnly("POST", h.installUpdate))
@@ -65,6 +65,19 @@ func (h *handlers) configHandler(w http.ResponseWriter, r *http.Request) {
 		h.getConfig(w, r)
 	case http.MethodPut:
 		h.putConfig(w, r)
+	case http.MethodOptions:
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (h *handlers) logsHandler(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.getLogs(w, r)
+	case http.MethodDelete:
+		h.clearLogs(w, r)
 	case http.MethodOptions:
 		w.WriteHeader(http.StatusNoContent)
 	default:

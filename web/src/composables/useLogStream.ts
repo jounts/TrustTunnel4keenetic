@@ -1,6 +1,6 @@
 import { ref, onUnmounted } from 'vue'
 
-export function useLogStream() {
+export function useLogStream(streamUrl = '/api/logs/stream') {
   const lines = ref<string[]>([])
   const connected = ref(false)
   const paused = ref(false)
@@ -9,10 +9,7 @@ export function useLogStream() {
   function connect() {
     if (eventSource) return
 
-    const creds = localStorage.getItem('tt_auth')
-    const url = creds ? `/api/logs/stream?auth=${encodeURIComponent(creds)}` : '/api/logs/stream'
-
-    eventSource = new EventSource(url)
+    eventSource = new EventSource(streamUrl)
     connected.value = true
 
     eventSource.onmessage = (event) => {

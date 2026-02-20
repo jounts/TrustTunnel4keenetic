@@ -145,7 +145,9 @@ export function useApi() {
     getMode: () => call(() => request<ModeInfo>('/mode')),
     putMode: (data: { mode: string; tun_idx: number; proxy_idx: number }) =>
       call(() => request<any>('/mode', { method: 'PUT', body: JSON.stringify(data) })),
-    getLogs: (lines = 100) => call(() => request<{ lines: string[]; count: number }>(`/logs?lines=${lines}`)),
+    getLogs: (lines = 100, source = 'client') =>
+      call(() => request<{ lines: string[]; count: number }>(`/logs?lines=${lines}&source=${source}`)),
+    clearLogs: () => call(() => request<{ ok: boolean }>('/logs', { method: 'DELETE' })),
     checkUpdate: () => call(() => request<UpdateInfo>('/update/check')),
     installUpdate: () => call(() => request<any>('/update/install', { method: 'POST' })),
     installManagerUpdate: () => call(() => request<any>('/update/install-manager', { method: 'POST' })),

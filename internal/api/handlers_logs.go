@@ -10,9 +10,19 @@ import (
 	"time"
 )
 
-const defaultLogPath = "/opt/var/log/trusttunnel.log"
+const clientLogPath = "/opt/var/log/trusttunnel.log"
+const managerLogPath = "/opt/var/log/trusttunnel_manager.log"
+
+func logPathFromRequest(r *http.Request) string {
+	if r.URL.Query().Get("source") == "manager" {
+		return managerLogPath
+	}
+	return clientLogPath
+}
 
 func (h *handlers) getLogs(w http.ResponseWriter, r *http.Request) {
+	logPath := logPathFromRequest(r)
+
 	lines := 100
 	if v := r.URL.Query().Get("lines"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 5000 {
@@ -20,20 +30,22 @@ func (h *handlers) getLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	content, err := tailFile(defaultLogPath, lines)
+	content, err := tailFile(logPath, lines)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
-		"lines":   content,
-		"file":    defaultLogPath,
-		"count":   len(content),
+		"lines": content,
+		"file":  logPath,
+		"count": len(content),
 	})
 }
 
 func (h *handlers) streamLogs(w http.ResponseWriter, r *http.Request) {
+	logPath := logPathFromRequest(r)
+
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		writeError(w, http.StatusInternalServerError, "streaming not supported")
@@ -44,7 +56,7 @@ func (h *handlers) streamLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	f, err := os.Open(defaultLogPath)
+	f, err := os.Open(logPath)
 	if err != nil {
 		fmt.Fprintf(w, "data: {\"error\": %q}\n\n", err.Error())
 		flusher.Flush()
@@ -70,6 +82,16 @@ func (h *handlers) streamLogs(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+}
+
+func (h *handlers) clearLogs(w http.ResponseWriter, r *http.Request) {
+	for _, p := range []string{clientLogPath, managerLogPath} {
+		if err := os.Truncate(p, 0); err != nil && !os.IsNotExist(err) {
+			writeError(w, http.StatusInternalServerError, "failed to clear "+p+": "+err.Error())
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func tailFile(path string, n int) ([]string, error) {
