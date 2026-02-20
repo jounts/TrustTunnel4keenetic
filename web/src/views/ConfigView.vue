@@ -11,39 +11,43 @@ const saved = ref(false)
 const modeChanging = ref(false)
 const showModeWarning = ref(false)
 const pendingMode = ref('')
-const configPlaceholder = `# Конфигурация TrustTunnel Client
-# Вставьте конфиг от эндпоинта и нажмите «Сохранить»
+const configTemplate = `# Конфигурация TrustTunnel Client
+# Отредактируйте параметры и нажмите «Сохранить»
 # Секция [listener.*] управляется автоматически при смене режима
 
 vpn_mode = "general"
 
 [endpoint]
-hostname = "vpn.endpoint"
-addresses = ["ip:port"]
+hostname = "vpn.example.com"
+addresses = ["1.2.3.4:443"]
 has_ipv6 = true
-username = "username"
-password = "pass"
+username = "your_username"
+password = "your_password"
 skip_verification = false
 certificate = """
 -----BEGIN CERTIFICATE-----
+...вставьте сертификат...
 -----END CERTIFICATE-----
 """
 upstream_protocol = "http2"
 anti_dpi = false
 
-# Для TUN режима:
-[listener.tun]
-mtu_size = 1280
+[listener.socks]
+address = "127.0.0.1:1080"
+`
+const configEmpty = ref(false)
 
-# Для SOCKS5 режима (вместо [listener.tun]):
-# [listener.socks]
-# address = "127.0.0.1:1080"`
+function loadTemplate() {
+  clientConfigText.value = configTemplate
+  configEmpty.value = false
+}
 
 onMounted(async () => {
   config.value = await api.getConfig()
   if (config.value) {
     clientConfigText.value = config.value.client_config
     mode.value = config.value.mode
+    configEmpty.value = !config.value.client_config.trim()
   }
 })
 
@@ -100,13 +104,21 @@ async function confirmModeChange() {
     <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-6">
       <div class="flex items-center justify-between mb-4">
         <h2 class="text-lg font-semibold">Конфигурация клиента (TOML)</h2>
-        <button
-          @click="saveConfig"
-          :disabled="api.loading.value"
-          class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50 transition-colors"
-        >
-          Сохранить
-        </button>
+        <div class="flex gap-2">
+          <button
+            @click="loadTemplate"
+            class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            Загрузить шаблон
+          </button>
+          <button
+            @click="saveConfig"
+            :disabled="api.loading.value || !clientConfigText.trim()"
+            class="inline-flex items-center px-4 py-2 rounded-lg text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 disabled:opacity-50 transition-colors"
+          >
+            Сохранить
+          </button>
+        </div>
       </div>
       <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">
         Можно вставить конфиг от эндпоинта как есть — при сохранении он будет автоматически
@@ -114,12 +126,18 @@ async function confirmModeChange() {
         секции <code class="text-gray-600 dark:text-gray-300">[endpoint]</code> и
         <code class="text-gray-600 dark:text-gray-300">[listener.*]</code>).
       </p>
+      <div v-if="configEmpty" class="mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+        <p class="text-sm text-amber-700 dark:text-amber-400">
+          Конфигурация клиента пуста. Нажмите <button @click="loadTemplate" class="underline font-medium hover:text-amber-900 dark:hover:text-amber-200">«Загрузить шаблон»</button>,
+          чтобы заполнить пример, или вставьте конфиг от эндпоинта.
+        </p>
+      </div>
       <textarea
         v-model="clientConfigText"
-        rows="16"
+        rows="20"
         class="w-full font-mono text-sm bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 focus:ring-2 focus:ring-brand-500 focus:border-brand-500 resize-y"
         spellcheck="false"
-        :placeholder="configPlaceholder"
+        placeholder="# Вставьте конфиг от эндпоинта или нажмите «Загрузить шаблон»"
       />
       <p v-if="saved" class="mt-2 text-sm text-green-600 dark:text-green-400">Конфигурация сохранена</p>
     </div>

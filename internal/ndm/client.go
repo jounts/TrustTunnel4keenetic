@@ -79,7 +79,7 @@ func (c *Client) setupProxyInterface(idx int) error {
 		fmt.Sprintf("interface %s security-level public", name),
 		"system configuration save",
 	)
-	return c.runNDMC(commands)
+	return c.runRCI(commands)
 }
 
 func (c *Client) setupTunInterface(idx int) error {
@@ -96,7 +96,7 @@ func (c *Client) setupTunInterface(idx int) error {
 		fmt.Sprintf("ip route default 172.16.219.2 %s", name),
 		"system configuration save",
 	}
-	return c.runNDMC(commands)
+	return c.runRCI(commands)
 }
 
 func (c *Client) RemoveInterface(name string) error {
@@ -109,17 +109,72 @@ func (c *Client) RemoveInterface(name string) error {
 		cmds = append(cmds, fmt.Sprintf("no ip route default 172.16.219.2 %s", name))
 	}
 	cmds = append(cmds, "system configuration save")
-	return c.runNDMC(cmds)
+	return c.runRCI(cmds)
 }
 
-func (c *Client) runNDMC(commands []string) error {
+// runRCI sends CLI commands to the router via HTTP RCI API (POST /rci/).
+// Each command is sent as {"parse": "..."} in a JSON array.
+// Falls back to the ndmc CLI binary if the HTTP request itself fails.
+func (c *Client) runRCI(commands []string) error {
+	batch := make([]parseRequest, len(commands))
+	for i, cmd := range commands {
+		batch[i] = parseRequest{Parse: cmd}
+	}
+
+	body, err := json.Marshal(batch)
+	if err != nil {
+		return fmt.Errorf("rci: marshal: %w", err)
+	}
+
+	resp, err := c.httpClient.Post(c.baseURL+"/rci/", "application/json", bytes.NewReader(body))
+	if err != nil {
+		log.Printf("RCI HTTP request failed, falling back to ndmc: %v", err)
+		return c.runNDMCFallback(commands)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("rci: read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("RCI returned %d, falling back to ndmc", resp.StatusCode)
+		return c.runNDMCFallback(commands)
+	}
+
+	var results []parseResponse
+	if err := json.Unmarshal(respBody, &results); err != nil {
+		log.Printf("RCI response parse error (%s), falling back to ndmc", err)
+		return c.runNDMCFallback(commands)
+	}
+
+	for i, res := range results {
+		cmd := ""
+		if i < len(commands) {
+			cmd = commands[i]
+		}
+		for _, st := range res.Parse.Status {
+			if st.Status == "error" {
+				if isNonCriticalRCIError(cmd, st) {
+					log.Printf("rci warning (NDMS %d): %q: %s (%s)", c.ndmsMajor, cmd, st.Message, st.Code)
+					continue
+				}
+				return fmt.Errorf("rci %q: %s: %s", cmd, st.Code, st.Message)
+			}
+		}
+	}
+	return nil
+}
+
+// runNDMCFallback executes commands one-by-one via the ndmc CLI binary.
+// Used when the HTTP RCI endpoint is unreachable.
+func (c *Client) runNDMCFallback(commands []string) error {
 	for _, cmd := range commands {
 		out, err := exec.Command("ndmc", "-c", cmd).CombinedOutput()
 		if err != nil {
 			outStr := strings.TrimSpace(string(out))
-			// On NDMS 5, some commands may return non-zero but still succeed.
-			// Log warning but try to continue for non-critical commands.
-			if isNonCriticalNDMCError(cmd, outStr) {
+			if isNonCriticalNDMCOutput(cmd, outStr) {
 				log.Printf("ndmc warning (NDMS %d): %q: %s", c.ndmsMajor, cmd, outStr)
 				continue
 			}
@@ -129,7 +184,29 @@ func (c *Client) runNDMC(commands []string) error {
 	return nil
 }
 
-func isNonCriticalNDMCError(cmd, output string) bool {
+func isNonCriticalRCIError(cmd string, st rciStatus) bool {
+	lower := strings.ToLower(st.Message)
+	code := strings.ToLower(st.Code)
+
+	if strings.Contains(lower, "already") {
+		return true
+	}
+	if strings.Contains(lower, "exist") && strings.Contains(cmd, "ip route") {
+		return true
+	}
+	if strings.HasPrefix(cmd, "no ") && (strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "unable to find") ||
+		strings.Contains(lower, "no such") ||
+		strings.Contains(code, "not_found")) {
+		return true
+	}
+	if strings.Contains(lower, "unsupported") {
+		return true
+	}
+	return false
+}
+
+func isNonCriticalNDMCOutput(cmd, output string) bool {
 	lower := strings.ToLower(output)
 	if strings.Contains(lower, "already") {
 		return true
@@ -137,11 +214,9 @@ func isNonCriticalNDMCError(cmd, output string) bool {
 	if strings.Contains(lower, "exist") && strings.Contains(cmd, "ip route") {
 		return true
 	}
-	// Removing non-existent interface or route
 	if strings.HasPrefix(cmd, "no ") && (strings.Contains(lower, "not found") || strings.Contains(lower, "unable to find") || strings.Contains(lower, "no such")) {
 		return true
 	}
-	// Unsupported interface type (e.g. Proxy on NDMS 5)
 	if strings.Contains(lower, "unsupported") {
 		return true
 	}
@@ -154,7 +229,12 @@ func detectNDMSMajor() int {
 		ver = strings.TrimSpace(string(data))
 	}
 
-	// Fallback: query ndmc
+	// Fallback: RCI HTTP API
+	if ver == "" {
+		ver = detectVersionViaRCI()
+	}
+
+	// Last resort: ndmc CLI
 	if ver == "" {
 		if out, err := exec.Command("ndmc", "-c", "show version").CombinedOutput(); err == nil {
 			for _, line := range strings.Split(string(out), "\n") {
@@ -175,4 +255,25 @@ func detectNDMSMajor() int {
 	default:
 		return 4
 	}
+}
+
+func detectVersionViaRCI() string {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://localhost:79/rci/show/version")
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Title   string `json:"title"`
+		Release string `json:"release"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return ""
+	}
+	if result.Release != "" {
+		return result.Release
+	}
+	return result.Title
 }
