@@ -52,6 +52,34 @@ if [ -f "$SMART_ROUTING_SH" ]; then
     . "$SMART_ROUTING_SH"
 fi
 
+setup_ca_certs() {
+    local entware_bundle="/opt/etc/ssl/certs/ca-certificates.crt"
+    local sys_certs="/etc/ssl/certs"
+    local staging="/opt/var/run/ssl-certs"
+
+    [ ! -f "$entware_bundle" ] && return 0
+
+    # Already mounted — nothing to do
+    mount 2>/dev/null | grep -q "$sys_certs" && return 0
+
+    # Build a writable copy of the firmware certs + Entware CA bundle
+    rm -rf "$staging"
+    mkdir -p "$staging"
+    cp "$sys_certs"/*.crt "$staging/" 2>/dev/null
+    cp "$entware_bundle" "$staging/ca-certificates.crt"
+
+    mount --bind "$staging" "$sys_certs" 2>/dev/null
+    if mount 2>/dev/null | grep -q "$sys_certs"; then
+        export SSL_CERT_FILE="$sys_certs/ca-certificates.crt"
+        export SSL_CERT_DIR="$sys_certs"
+        log_msg "CA certificates overlay mounted on $sys_certs"
+    else
+        export SSL_CERT_FILE="$entware_bundle"
+        export SSL_CERT_DIR="/opt/etc/ssl/certs"
+        log_msg "WARNING: bind mount failed, falling back to SSL_CERT_FILE env var"
+    fi
+}
+
 rotate_log() {
     if [ -f "$LOG_FILE" ]; then
         local size=$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)
@@ -198,15 +226,10 @@ start_client() {
     log_msg "Starting TrustTunnel client in $TT_MODE mode (NDMS ${NDMS_MAJOR:-?}, FW: ${NDMS_FW_BACKEND:-?})"
 
     # Ensure the TLS library can find CA certificates from Entware.
-    # BoringSSL ignores SSL_CERT_FILE/SSL_CERT_DIR env vars, so we
-    # create symlinks at all standard paths it may probe at runtime.
-    if [ -f /opt/etc/ssl/certs/ca-certificates.crt ]; then
-        export SSL_CERT_FILE="/opt/etc/ssl/certs/ca-certificates.crt"
-        export SSL_CERT_DIR="/opt/etc/ssl/certs"
-        mkdir -p /etc/ssl/certs 2>/dev/null || true
-        ln -sf /opt/etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt 2>/dev/null || true
-        ln -sf /opt/etc/ssl/certs/ca-certificates.crt /etc/ssl/cert.pem 2>/dev/null || true
-    fi
+    # /etc/ssl/certs/ on Keenetic is read-only (squashfs) and contains
+    # individual .crt files but no combined bundle. BoringSSL needs the
+    # bundle file. We bind-mount a writable overlay with the bundle added.
+    setup_ca_certs
 
     if [ "$TT_MODE" = "tun" ]; then
         if ! find_free_tun_idx; then
