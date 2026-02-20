@@ -65,16 +65,23 @@ sr_check_deps() {
 }
 
 sr_save_orig_gateway() {
-    local gw
-    gw=$(ip route show default 2>/dev/null | grep -v "tun" | head -n1 | awk '{print $3}')
-    local dev
-    dev=$(ip route show default 2>/dev/null | grep -v "tun" | head -n1 | awk '{print $5}')
-    if [ -n "$gw" ] && [ -n "$dev" ]; then
+    local route_line
+    route_line=$(ip route show default 2>/dev/null | grep -v "tun" | head -n1)
+
+    local gw=""
+    local dev=""
+    # Extract gateway IP (present for non-PPPoE routes: "default via <ip> dev <if>")
+    echo "$route_line" | grep -q "via" && \
+        gw=$(echo "$route_line" | sed -n 's/.*via \([^ ]*\).*/\1/p')
+    # Extract device name
+    dev=$(echo "$route_line" | sed -n 's/.*dev \([^ ]*\).*/\1/p')
+
+    if [ -n "$dev" ]; then
         echo "GW=$gw" > "$SR_ORIG_GW_FILE"
         echo "DEV=$dev" >> "$SR_ORIG_GW_FILE"
-        sr_log "Saved original gateway: $gw via $dev"
+        sr_log "Saved original gateway: gw=${gw:-none} dev=$dev"
     else
-        sr_log "WARNING: Could not detect original gateway"
+        sr_log "WARNING: Could not detect original gateway (route: $route_line)"
     fi
 }
 
@@ -93,7 +100,7 @@ sr_load_domestic_nets() {
     fw_restore_set "$SR_IPSET_DOMESTIC" "$SR_NETS_FILE"
     local count
     count=$(fw_set_count "$SR_IPSET_DOMESTIC")
-    sr_log "Loaded $count domestic CIDRs for $SR_HOME_COUNTRY"
+    sr_log "Loaded ${count:-0} domestic CIDRs for $SR_HOME_COUNTRY"
 }
 
 sr_update_nets() {
@@ -197,10 +204,14 @@ sr_setup_routing() {
         sr_log "WARNING: routing table $SR_TABLE already has a default route, possible VPN conflict"
     fi
 
-    ip route replace default via "$GW" dev "$DEV" table "$SR_TABLE" 2>/dev/null
+    if [ -n "$GW" ]; then
+        ip route replace default via "$GW" dev "$DEV" table "$SR_TABLE" 2>/dev/null
+    else
+        ip route replace default dev "$DEV" table "$SR_TABLE" 2>/dev/null
+    fi
     ip rule add fwmark "$SR_FWMARK" table "$SR_TABLE" priority 100 2>/dev/null
 
-    sr_log "Policy routing configured: mark $SR_FWMARK -> table $SR_TABLE (gw=$GW dev=$DEV)"
+    sr_log "Policy routing configured: mark $SR_FWMARK -> table $SR_TABLE (gw=${GW:-none} dev=$DEV)"
 }
 
 sr_cleanup_routing() {
@@ -256,6 +267,10 @@ sr_start() {
     fi
 
     mkdir -p "$SR_DIR"
+
+    if [ ! -f "$SR_ORIG_GW_FILE" ]; then
+        sr_save_orig_gateway
+    fi
 
     # Create default domains file if missing
     if [ ! -f "$SR_DOMAINS_FILE" ]; then
