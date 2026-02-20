@@ -123,6 +123,11 @@ jobs:
             curl -fsSL https://raw.githubusercontent.com/jounts/TrustTunnel4keenetic/master/scripts/install.sh | sh
             ```
 
+            ### Uninstall
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/jounts/TrustTunnel4keenetic/master/scripts/uninstall.sh | sh
+            ```
+
             ### Architectures
             - `mipsel` — most Keenetic models (KN-1810, KN-1010, etc.)
             - `mips` — older models

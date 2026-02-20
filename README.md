@@ -103,6 +103,22 @@ opkg install dnsmasq-full ipset
 uname -m  # покажет архитектуру
 ```
 
+## Удаление
+
+### Через скрипт (рекомендуется)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/jounts/TrustTunnel4keenetic/master/scripts/uninstall.sh | sh
+```
+
+### Локально (если уже установлен)
+
+```bash
+/opt/trusttunnel_client/uninstall.sh
+```
+
+Скрипт останавливает сервисы, удаляет init-скрипты, NDM-хуки и директорию `/opt/trusttunnel_client`.
+
 ## Настройка
 
 ### Интерактивная
@@ -205,6 +221,7 @@ TrustTunnel4keenetic/
 │   ├── ndms-compat.sh          # Слой совместимости NDMS 4/5 (iptables/nftables)
 │   ├── smart-routing.sh        # Smart Routing (ipset, dnsmasq, policy routing)
 │   ├── install.sh              # Установщик
+│   ├── uninstall.sh            # Удаление
 │   └── configure.sh            # Интерактивная настройка
 ├── packaging/                  # Сборка .ipk
 ├── .github/workflows/          # CI/CD

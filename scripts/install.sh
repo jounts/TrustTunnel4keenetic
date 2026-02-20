@@ -173,6 +173,14 @@ install_scripts() {
     curl -fsSL "$base_url/smart-routing.sh" -o "$INSTALL_DIR/smart-routing.sh"
     chmod 755 "$INSTALL_DIR/smart-routing.sh"
 
+    info "Installing install script..."
+    curl -fsSL "$base_url/install.sh" -o "$INSTALL_DIR/install.sh"
+    chmod 755 "$INSTALL_DIR/install.sh"
+
+    info "Installing uninstall script..."
+    curl -fsSL "$base_url/uninstall.sh" -o "$INSTALL_DIR/uninstall.sh"
+    chmod 755 "$INSTALL_DIR/uninstall.sh"
+
     info "All scripts and hooks installed"
 }
 

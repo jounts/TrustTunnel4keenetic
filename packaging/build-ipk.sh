@@ -88,9 +88,11 @@ chmod 755 "$DATA/opt/trusttunnel_client/trusttunnel-manager"
 
 # Copy scripts
 cp "$PROJECT_DIR/scripts/install.sh" "$DATA/opt/trusttunnel_client/"
+cp "$PROJECT_DIR/scripts/uninstall.sh" "$DATA/opt/trusttunnel_client/"
 cp "$PROJECT_DIR/scripts/configure.sh" "$DATA/opt/trusttunnel_client/"
 cp "$PROJECT_DIR/scripts/ndms-compat.sh" "$DATA/opt/trusttunnel_client/"
 chmod 755 "$DATA/opt/trusttunnel_client/install.sh"
+chmod 755 "$DATA/opt/trusttunnel_client/uninstall.sh"
 chmod 755 "$DATA/opt/trusttunnel_client/configure.sh"
 chmod 755 "$DATA/opt/trusttunnel_client/ndms-compat.sh"
 
