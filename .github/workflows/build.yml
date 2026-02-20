@@ -112,13 +112,13 @@ jobs:
 
             ### Installation
 
-            **Via OPKG (recommended):**
+            **Via OPKG:**
             ```bash
             # Download the .ipk for your architecture
             opkg install trusttunnel-manager_${{ github.ref_name }}_<arch>.ipk
             ```
 
-            **Via install script:**
+            **Via install script (recommended):**
             ```bash
             curl -fsSL https://raw.githubusercontent.com/jounts/TrustTunnel4keenetic/master/scripts/install.sh | sh
             ```
