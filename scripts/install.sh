@@ -215,6 +215,9 @@ MODECONF
     if [ ! -f "$INSTALL_DIR/manager.conf" ]; then
         cat > "$INSTALL_DIR/manager.conf" << 'MGRCONF'
 LISTEN_ADDR=":8080"
+# AUTH_MODE: "ndm" (Keenetic router accounts), "local" (USERNAME/PASSWORD below), "none" (disabled)
+# Default (empty): if PASSWORD is set → local, otherwise → ndm
+AUTH_MODE=""
 USERNAME="admin"
 PASSWORD=""
 MGRCONF
@@ -255,7 +258,8 @@ main() {
     echo "Next steps:"
     echo "  1. Configure the client: vi $INSTALL_DIR/trusttunnel_client.toml"
     echo "  2. Or run interactive setup: /opt/trusttunnel_client/configure.sh"
-    echo "  3. Set a password for the web panel: vi $INSTALL_DIR/manager.conf"
+    echo "  3. Auth: uses Keenetic accounts by default (AUTH_MODE=ndm)"
+    echo "     To use a static password: vi $INSTALL_DIR/manager.conf"
     echo "  4. Start the services:"
     echo "     $INIT_DIR/S98trusttunnel-manager start"
     echo "     $INIT_DIR/S99trusttunnel start"

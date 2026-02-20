@@ -18,8 +18,7 @@ type Dependencies struct {
 	RoutingManager *routing.Manager
 	SystemInfo     *platform.Info
 	StaticFS       http.FileSystem
-	Username       string
-	Password       string
+	Auth           AuthConfig
 }
 
 func NewRouter(deps Dependencies) http.Handler {
@@ -40,7 +39,7 @@ func NewRouter(deps Dependencies) http.Handler {
 	mux.HandleFunc("/api/routing/domains", h.routingDomainsHandler)
 	mux.HandleFunc("/api/routing/update-nets", methodOnly("POST", h.updateRoutingNets))
 
-	apiHandler := withAuth(deps.Username, deps.Password, withCORS(mux))
+	apiHandler := withAuth(deps.Auth, withCORS(mux))
 
 	root := http.NewServeMux()
 	root.Handle("/api/", apiHandler)

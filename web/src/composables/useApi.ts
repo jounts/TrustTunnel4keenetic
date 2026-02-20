@@ -29,6 +29,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   })
 
   if (resp.status === 401) {
+    clearAuth()
+    window.location.reload()
     throw new Error('Unauthorized')
   }
 

@@ -5,6 +5,8 @@ import (
 	"log"
 	"net/http"
 	"time"
+
+	"github.com/jounts/TrustTunnel4keenetic/internal/ndm"
 )
 
 func withLogging(next http.Handler) http.Handler {
@@ -16,15 +18,46 @@ func withLogging(next http.Handler) http.Handler {
 	})
 }
 
-func withAuth(username, password string, next http.Handler) http.Handler {
-	if password == "" {
+// AuthMode determines how credentials are verified.
+type AuthMode int
+
+const (
+	AuthNone  AuthMode = iota // no auth (password empty)
+	AuthLocal                 // local username/password from manager.conf
+	AuthNDM                   // validate against Keenetic NDM API
+)
+
+type AuthConfig struct {
+	Mode          AuthMode
+	Username      string
+	Password      string
+	NDMAuthenticator *ndm.Authenticator
+}
+
+func withAuth(cfg AuthConfig, next http.Handler) http.Handler {
+	if cfg.Mode == AuthNone {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		u, p, ok := r.BasicAuth()
-		if !ok ||
-			subtle.ConstantTimeCompare([]byte(u), []byte(username)) != 1 ||
-			subtle.ConstantTimeCompare([]byte(p), []byte(password)) != 1 {
+		if !ok {
+			w.Header().Set("WWW-Authenticate", `Basic realm="TrustTunnel Manager"`)
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var valid bool
+		switch cfg.Mode {
+		case AuthNDM:
+			if cfg.NDMAuthenticator != nil {
+				valid = cfg.NDMAuthenticator.Verify(u, p)
+			}
+		case AuthLocal:
+			valid = subtle.ConstantTimeCompare([]byte(u), []byte(cfg.Username)) == 1 &&
+				subtle.ConstantTimeCompare([]byte(p), []byte(cfg.Password)) == 1
+		}
+
+		if !valid {
 			w.Header().Set("WWW-Authenticate", `Basic realm="TrustTunnel Manager"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
