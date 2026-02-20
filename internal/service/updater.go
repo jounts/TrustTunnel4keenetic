@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -23,9 +24,11 @@ type UpdateInfo struct {
 	ClientCurrentVersion  string `json:"client_current_version"`
 	ClientLatestVersion   string `json:"client_latest_version"`
 	ClientUpdateAvailable bool   `json:"client_update_available"`
+	ClientCheckError      string `json:"client_check_error,omitempty"`
 	ManagerCurrentVersion string `json:"manager_current_version"`
 	ManagerLatestVersion  string `json:"manager_latest_version"`
 	ManagerUpdateAvailable bool  `json:"manager_update_available"`
+	ManagerCheckError     string `json:"manager_check_error,omitempty"`
 }
 
 type UpdateResult struct {
@@ -34,17 +37,43 @@ type UpdateResult struct {
 	Version string `json:"version"`
 }
 
+const userAgent = "TrustTunnel-Manager/1.0"
+
+type etagEntry struct {
+	etag    string
+	version string
+}
+
 type Updater struct {
+	mu         sync.Mutex
 	httpClient *http.Client
+	cache      *UpdateInfo
+	cacheTime  time.Time
+	etagCache  map[string]etagEntry
 }
 
 func NewUpdater() *Updater {
 	return &Updater{
 		httpClient: &http.Client{Timeout: 15 * time.Second},
+		etagCache:  make(map[string]etagEntry),
 	}
 }
 
+func (u *Updater) InvalidateCache() {
+	u.mu.Lock()
+	u.cache = nil
+	u.mu.Unlock()
+}
+
 func (u *Updater) Check() (*UpdateInfo, error) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+
+	if u.cache != nil && time.Since(u.cacheTime) < 30*time.Minute {
+		log.Printf("[update] returning cached result (age %s)", time.Since(u.cacheTime).Round(time.Second))
+		return u.cache, nil
+	}
+
 	info := &UpdateInfo{}
 
 	info.ClientCurrentVersion = detectClientVersion()
@@ -54,6 +83,7 @@ func (u *Updater) Check() (*UpdateInfo, error) {
 		info.ClientLatestVersion = latest
 		info.ClientUpdateAvailable = latest != "" && latest != info.ClientCurrentVersion
 	} else {
+		info.ClientCheckError = err.Error()
 		log.Printf("[update] failed to check client release: %v", err)
 	}
 
@@ -64,12 +94,16 @@ func (u *Updater) Check() (*UpdateInfo, error) {
 		info.ManagerLatestVersion = latest
 		info.ManagerUpdateAvailable = latest != "" && latest != info.ManagerCurrentVersion
 	} else {
+		info.ManagerCheckError = err.Error()
 		log.Printf("[update] failed to check manager release: %v", err)
 	}
 
 	log.Printf("[update] check complete: client=%s->%s manager=%s->%s",
 		info.ClientCurrentVersion, info.ClientLatestVersion,
 		info.ManagerCurrentVersion, info.ManagerLatestVersion)
+
+	u.cache = info
+	u.cacheTime = time.Now()
 	return info, nil
 }
 
@@ -144,6 +178,7 @@ func (u *Updater) Install() (*UpdateResult, error) {
 
 	log.Printf("[update] starting TrustTunnel client")
 	svcMgr.Control("start")
+	u.cache = nil
 	log.Printf("[update] complete, version: %s", newVer)
 	return &UpdateResult{
 		Success: true,
@@ -205,108 +240,116 @@ func (u *Updater) InstallManager() (*UpdateResult, error) {
 }
 
 func (u *Updater) latestRelease(repo string) (string, error) {
-	// Try /releases/latest first (skips pre-releases)
-	url := fmt.Sprintf("%s/%s/releases/latest", githubAPI, repo)
+	url := fmt.Sprintf("%s/%s/releases?per_page=1", githubAPI, repo)
+
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", userAgent)
+
+	if cached, ok := u.etagCache[repo]; ok && cached.etag != "" {
+		req.Header.Set("If-None-Match", cached.etag)
+	}
 
 	resp, err := u.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		if cached, ok := u.etagCache[repo]; ok && cached.version != "" {
+			log.Printf("[update] request to %s failed: %v, using cached version %s", url, err, cached.version)
+			return cached.version, nil
+		}
+		return "", fmt.Errorf("request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
-		var release struct {
-			TagName string `json:"tag_name"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&release); err == nil && release.TagName != "" {
-			return release.TagName, nil
+	remaining := resp.Header.Get("X-Ratelimit-Remaining")
+	log.Printf("[update] %s HTTP %d (rate-limit remaining: %s)", url, resp.StatusCode, remaining)
+
+	if resp.StatusCode == http.StatusNotModified {
+		if cached, ok := u.etagCache[repo]; ok {
+			return cached.version, nil
 		}
 	}
-	resp.Body.Close()
 
-	// Fallback: get first release from the list (includes pre-releases)
-	url = fmt.Sprintf("%s/%s/releases?per_page=1", githubAPI, repo)
-	req, _ = http.NewRequest("GET", url, nil)
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err = u.httpClient.Do(req)
-	if err != nil {
-		return "", err
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == 429 {
+		if cached, ok := u.etagCache[repo]; ok && cached.version != "" {
+			log.Printf("[update] rate limited, using cached version %s", cached.version)
+			return cached.version, nil
+		}
+		return "", fmt.Errorf("GitHub API rate limit exceeded (HTTP %d)", resp.StatusCode)
 	}
-	defer resp.Body.Close()
 
-	var releases []struct {
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("GitHub API returned HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	body, _ := io.ReadAll(resp.Body)
+
+	type releaseObj struct {
 		TagName string `json:"tag_name"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
-		return "", err
+	var list []releaseObj
+	if err := json.Unmarshal(body, &list); err != nil {
+		return "", fmt.Errorf("json decode: %w", err)
 	}
-	if len(releases) == 0 {
-		return "", fmt.Errorf("no releases found")
+	if len(list) == 0 || list[0].TagName == "" {
+		return "", fmt.Errorf("no releases found for %s", repo)
 	}
-	return releases[0].TagName, nil
+
+	version := list[0].TagName
+	etag := resp.Header.Get("ETag")
+	u.etagCache[repo] = etagEntry{etag: etag, version: version}
+
+	return version, nil
 }
 
 func (u *Updater) findAssetURL(repo, prefix, suffix string) (string, error) {
-	// Try /releases/latest, fallback to /releases?per_page=1 for pre-releases
-	urls := []string{
-		fmt.Sprintf("%s/%s/releases/latest", githubAPI, repo),
-		fmt.Sprintf("%s/%s/releases?per_page=1", githubAPI, repo),
+	url := fmt.Sprintf("%s/%s/releases?per_page=1", githubAPI, repo)
+
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Accept", "application/vnd.github.v3+json")
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := u.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("request failed: %w", err)
 	}
+	defer resp.Body.Close()
 
-	for _, url := range urls {
-		req, _ := http.NewRequest("GET", url, nil)
-		req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-		resp, err := u.httpClient.Do(req)
-		if err != nil {
-			continue
-		}
-
+	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		return "", fmt.Errorf("GitHub API returned HTTP %d: %s", resp.StatusCode, string(body))
+	}
 
-		if resp.StatusCode != http.StatusOK {
-			continue
-		}
+	body, _ := io.ReadAll(resp.Body)
 
-		type asset struct {
-			Name               string `json:"name"`
-			BrowserDownloadURL string `json:"browser_download_url"`
-		}
-		type releaseInfo struct {
-			Assets []asset `json:"assets"`
-		}
+	type asset struct {
+		Name               string `json:"name"`
+		BrowserDownloadURL string `json:"browser_download_url"`
+	}
+	type releaseInfo struct {
+		Assets []asset `json:"assets"`
+	}
 
-		var assets []asset
-		// Try as single object first, then as array
-		var single releaseInfo
-		if json.Unmarshal(body, &single) == nil && len(single.Assets) > 0 {
-			assets = single.Assets
-		} else {
-			var list []releaseInfo
-			if json.Unmarshal(body, &list) == nil && len(list) > 0 {
-				assets = list[0].Assets
-			}
-		}
+	var list []releaseInfo
+	if err := json.Unmarshal(body, &list); err != nil {
+		return "", fmt.Errorf("json decode: %w", err)
+	}
+	if len(list) == 0 {
+		return "", fmt.Errorf("no releases found")
+	}
 
-		for _, a := range assets {
-			if strings.HasPrefix(a.Name, prefix) && strings.HasSuffix(a.Name, suffix) {
-				log.Printf("[update] matched asset: %s", a.Name)
-				return a.BrowserDownloadURL, nil
-			}
-		}
-
-		if len(assets) > 0 {
-			names := make([]string, 0, len(assets))
-			for _, a := range assets {
-				names = append(names, a.Name)
-			}
-			log.Printf("[update] no match for %s*%s in assets: %v", prefix, suffix, names)
+	for _, a := range list[0].Assets {
+		if strings.HasPrefix(a.Name, prefix) && (suffix == "" || strings.HasSuffix(a.Name, suffix)) {
+			log.Printf("[update] matched asset: %s", a.Name)
+			return a.BrowserDownloadURL, nil
 		}
 	}
+
+	names := make([]string, 0, len(list[0].Assets))
+	for _, a := range list[0].Assets {
+		names = append(names, a.Name)
+	}
+	log.Printf("[update] no match for %s*%s in assets: %v", prefix, suffix, names)
 	return "", fmt.Errorf("asset %q not found in release", prefix+"*"+suffix)
 }
 

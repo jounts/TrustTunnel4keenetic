@@ -5,6 +5,9 @@ import (
 )
 
 func (h *handlers) checkUpdate(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("force") == "true" {
+		h.deps.Updater.InvalidateCache()
+	}
 	info, err := h.deps.Updater.Check()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

@@ -58,9 +58,11 @@ export interface UpdateInfo {
   client_current_version: string
   client_latest_version: string
   client_update_available: boolean
+  client_check_error?: string
   manager_current_version: string
   manager_latest_version: string
   manager_update_available: boolean
+  manager_check_error?: string
 }
 
 export interface SystemInfo {
@@ -148,7 +150,7 @@ export function useApi() {
     getLogs: (lines = 100, source = 'client') =>
       call(() => request<{ lines: string[]; count: number }>(`/logs?lines=${lines}&source=${source}`)),
     clearLogs: () => call(() => request<{ ok: boolean }>('/logs', { method: 'DELETE' })),
-    checkUpdate: () => call(() => request<UpdateInfo>('/update/check')),
+    checkUpdate: (force = false) => call(() => request<UpdateInfo>(`/update/check${force ? '?force=true' : ''}`)),
     installUpdate: () => call(() => request<any>('/update/install', { method: 'POST' })),
     installManagerUpdate: () => call(() => request<any>('/update/install-manager', { method: 'POST' })),
     getSystem: () => call(() => request<SystemInfo>('/system')),

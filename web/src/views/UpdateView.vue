@@ -17,7 +17,7 @@ onMounted(async () => {
 
 async function checkForUpdates() {
   installResult.value = null
-  updateInfo.value = await api.checkUpdate()
+  updateInfo.value = await api.checkUpdate(true)
 }
 
 async function doInstall() {
@@ -76,6 +76,9 @@ async function doInstallManager() {
             <div class="mt-2 space-y-1 text-sm">
               <p>Текущая: <span class="font-mono font-medium">{{ updateInfo.client_current_version }}</span></p>
               <p>Доступна: <span class="font-mono font-medium">{{ updateInfo.client_latest_version || '—' }}</span></p>
+              <p v-if="updateInfo.client_check_error" class="text-xs text-red-500 dark:text-red-400 mt-1">
+                Ошибка проверки: {{ updateInfo.client_check_error }}
+              </p>
             </div>
           </div>
           <div>
@@ -120,6 +123,9 @@ async function doInstallManager() {
             <div class="mt-2 space-y-1 text-sm">
               <p>Текущая: <span class="font-mono font-medium">{{ updateInfo.manager_current_version }}</span></p>
               <p>Доступна: <span class="font-mono font-medium">{{ updateInfo.manager_latest_version || '—' }}</span></p>
+              <p v-if="updateInfo.manager_check_error" class="text-xs text-red-500 dark:text-red-400 mt-1">
+                Ошибка проверки: {{ updateInfo.manager_check_error }}
+              </p>
             </div>
           </div>
           <div>
