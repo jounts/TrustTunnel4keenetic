@@ -2,36 +2,34 @@ import { ref } from 'vue'
 
 const BASE = '/api'
 
-function authHeaders(): HeadersInit {
-  const creds = localStorage.getItem('tt_auth')
-  if (creds) {
-    return { Authorization: `Basic ${creds}` }
+export class AuthRequiredError extends Error {
+  authMode: string
+  constructor(authMode: string) {
+    super('Unauthorized')
+    this.authMode = authMode
   }
+}
+
+function localAuthHeaders(): Record<string, string> {
+  const creds = localStorage.getItem('tt_basic_auth')
+  if (creds) return { Authorization: `Basic ${creds}` }
   return {}
-}
-
-export function setAuth(username: string, password: string) {
-  localStorage.setItem('tt_auth', btoa(`${username}:${password}`))
-}
-
-export function clearAuth() {
-  localStorage.removeItem('tt_auth')
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {
     ...options,
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
-      ...authHeaders(),
+      ...localAuthHeaders(),
       ...(options.headers || {}),
     },
   })
 
   if (resp.status === 401) {
-    clearAuth()
-    window.location.reload()
-    throw new Error('Unauthorized')
+    const body = await resp.json().catch(() => ({ auth_mode: 'ndm' }))
+    throw new AuthRequiredError(body.auth_mode || 'ndm')
   }
 
   if (!resp.ok) {
@@ -115,6 +113,22 @@ export interface RoutingDomains {
   domains: string
 }
 
+export async function checkAuth(): Promise<{ ok: boolean; authMode: string }> {
+  try {
+    const resp = await fetch(`${BASE}/status`, {
+      credentials: 'same-origin',
+      headers: { ...localAuthHeaders() },
+    })
+    if (resp.status === 401) {
+      const body = await resp.json().catch(() => ({ auth_mode: 'ndm' }))
+      return { ok: false, authMode: body.auth_mode || 'ndm' }
+    }
+    return { ok: resp.ok, authMode: 'none' }
+  } catch {
+    return { ok: false, authMode: 'ndm' }
+  }
+}
+
 export function useApi() {
   const loading = ref(false)
   const error = ref<string | null>(null)
@@ -125,6 +139,10 @@ export function useApi() {
     try {
       return await fn()
     } catch (e: any) {
+      if (e instanceof AuthRequiredError) {
+        window.location.reload()
+        return null
+      }
       error.value = e.message
       return null
     } finally {

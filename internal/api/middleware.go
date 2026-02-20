@@ -2,6 +2,7 @@ package api
 
 import (
 	"crypto/subtle"
+	"encoding/json"
 	"log"
 	"net/http"
 	"time"
@@ -18,20 +19,35 @@ func withLogging(next http.Handler) http.Handler {
 	})
 }
 
-// AuthMode determines how credentials are verified.
 type AuthMode int
 
 const (
-	AuthNone  AuthMode = iota // no auth (password empty)
-	AuthLocal                 // local username/password from manager.conf
-	AuthNDM                   // validate against Keenetic NDM API
+	AuthNone  AuthMode = iota
+	AuthLocal          // static username/password from manager.conf
+	AuthNDM            // validate session cookies against Keenetic NDM API
 )
 
+func (m AuthMode) String() string {
+	switch m {
+	case AuthLocal:
+		return "local"
+	case AuthNDM:
+		return "ndm"
+	default:
+		return "none"
+	}
+}
+
 type AuthConfig struct {
-	Mode          AuthMode
-	Username      string
-	Password      string
+	Mode             AuthMode
+	Username         string
+	Password         string
 	NDMAuthenticator *ndm.Authenticator
+}
+
+type authError struct {
+	Error    string `json:"error"`
+	AuthMode string `json:"auth_mode"`
 }
 
 func withAuth(cfg AuthConfig, next http.Handler) http.Handler {
@@ -39,29 +55,31 @@ func withAuth(cfg AuthConfig, next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u, p, ok := r.BasicAuth()
-		if !ok {
-			w.Header().Set("WWW-Authenticate", `Basic realm="TrustTunnel Manager"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
 		var valid bool
+
 		switch cfg.Mode {
 		case AuthNDM:
 			if cfg.NDMAuthenticator != nil {
-				valid = cfg.NDMAuthenticator.Verify(u, p)
+				valid = cfg.NDMAuthenticator.VerifyByCookies(r.Cookies())
 			}
 		case AuthLocal:
-			valid = subtle.ConstantTimeCompare([]byte(u), []byte(cfg.Username)) == 1 &&
-				subtle.ConstantTimeCompare([]byte(p), []byte(cfg.Password)) == 1
+			u, p, ok := r.BasicAuth()
+			if ok {
+				valid = subtle.ConstantTimeCompare([]byte(u), []byte(cfg.Username)) == 1 &&
+					subtle.ConstantTimeCompare([]byte(p), []byte(cfg.Password)) == 1
+			}
 		}
 
 		if !valid {
-			w.Header().Set("WWW-Authenticate", `Basic realm="TrustTunnel Manager"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(authError{
+				Error:    "unauthorized",
+				AuthMode: cfg.Mode.String(),
+			})
 			return
 		}
+
 		next.ServeHTTP(w, r)
 	})
 }

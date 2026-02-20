@@ -7,7 +7,6 @@ const emit = defineEmits<{ (e: 'logout'): void }>()
 const router = useRouter()
 const route = useRoute()
 const mobileOpen = ref(false)
-const hasAuth = !!localStorage.getItem('tt_auth')
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: 'M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6' },
@@ -92,7 +91,7 @@ function toggleTheme() {
             </svg>
             {{ isDark ? 'Светлая тема' : 'Тёмная тема' }}
           </button>
-          <button v-if="hasAuth" @click="emit('logout')" class="w-full flex items-center px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50">
+          <button @click="emit('logout')" class="w-full flex items-center px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700/50">
             <svg class="w-5 h-5 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
             </svg>

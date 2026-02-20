@@ -1,11 +1,10 @@
 package ndm
 
 import (
-	"crypto/md5"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -26,17 +25,26 @@ type cacheEntry struct {
 
 func NewAuthenticator(baseURL string) *Authenticator {
 	return &Authenticator{
-		baseURL:    strings.TrimRight(baseURL, "/"),
-		httpClient: &http.Client{Timeout: 3 * time.Second},
-		cache:      make(map[string]cacheEntry),
-		cacheTTL:   5 * time.Minute,
+		baseURL: strings.TrimRight(baseURL, "/"),
+		httpClient: &http.Client{
+			Timeout: 3 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		cache:    make(map[string]cacheEntry),
+		cacheTTL: 60 * time.Second,
 	}
 }
 
-// Verify checks credentials against the Keenetic NDM auth API.
-// Results are cached to avoid hitting NDM on every HTTP request.
-func (a *Authenticator) Verify(username, password string) bool {
-	key := fmt.Sprintf("%x", sha256.Sum256([]byte(username+":"+password)))
+// VerifyByCookies checks if the provided cookies represent a valid
+// Keenetic NDM session by forwarding them to the NDM auth endpoint.
+func (a *Authenticator) VerifyByCookies(cookies []*http.Cookie) bool {
+	if len(cookies) == 0 {
+		return false
+	}
+
+	key := cookieCacheKey(cookies)
 
 	a.mu.RLock()
 	if entry, ok := a.cache[key]; ok && time.Now().Before(entry.expires) {
@@ -45,11 +53,10 @@ func (a *Authenticator) Verify(username, password string) bool {
 	}
 	a.mu.RUnlock()
 
-	valid := a.verifyNDM(username, password)
+	valid := a.checkNDMSession(cookies)
 
 	a.mu.Lock()
 	a.cache[key] = cacheEntry{valid: valid, expires: time.Now().Add(a.cacheTTL)}
-	// Evict expired entries
 	now := time.Now()
 	for k, v := range a.cache {
 		if now.After(v.expires) {
@@ -61,58 +68,30 @@ func (a *Authenticator) Verify(username, password string) bool {
 	return valid
 }
 
-func (a *Authenticator) verifyNDM(username, password string) bool {
-	// Step 1: GET /auth to obtain challenge
-	resp, err := a.httpClient.Get(a.baseURL + "/auth")
+func (a *Authenticator) checkNDMSession(cookies []*http.Cookie) bool {
+	req, err := http.NewRequest("GET", a.baseURL+"/auth", nil)
+	if err != nil {
+		return false
+	}
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+
+	resp, err := a.httpClient.Do(req)
 	if err != nil {
 		return false
 	}
 	resp.Body.Close()
 
-	if resp.StatusCode == http.StatusOK {
-		// Already authenticated (shouldn't happen with fresh client)
-		return true
+	return resp.StatusCode == http.StatusOK
+}
+
+func cookieCacheKey(cookies []*http.Cookie) string {
+	pairs := make([]string, 0, len(cookies))
+	for _, c := range cookies {
+		pairs = append(pairs, c.Name+"="+c.Value)
 	}
-
-	if resp.StatusCode != http.StatusUnauthorized {
-		return false
-	}
-
-	realm := resp.Header.Get("X-NDM-Realm")
-	challenge := resp.Header.Get("X-NDM-Challenge")
-	if realm == "" || challenge == "" {
-		return false
-	}
-
-	// Step 2: md5(login:realm:password)
-	md5Hash := md5.Sum([]byte(username + ":" + realm + ":" + password))
-	md5Hex := fmt.Sprintf("%x", md5Hash)
-
-	// Step 3: sha256(challenge + md5hex)
-	shaHash := sha256.Sum256([]byte(challenge + md5Hex))
-	shaHex := fmt.Sprintf("%x", shaHash)
-
-	// Step 4: POST /auth with computed password
-	body := fmt.Sprintf(`{"login":%q,"password":%q}`, username, shaHex)
-	req, err := http.NewRequest("POST", a.baseURL+"/auth", strings.NewReader(body))
-	if err != nil {
-		return false
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	authResp, err := a.httpClient.Do(req)
-	if err != nil {
-		return false
-	}
-	defer authResp.Body.Close()
-
-	if authResp.StatusCode == http.StatusOK {
-		return true
-	}
-
-	// Check response body for error details
-	var result map[string]interface{}
-	json.NewDecoder(authResp.Body).Decode(&result)
-
-	return false
+	sort.Strings(pairs)
+	h := sha256.Sum256([]byte(strings.Join(pairs, ";")))
+	return fmt.Sprintf("%x", h)
 }

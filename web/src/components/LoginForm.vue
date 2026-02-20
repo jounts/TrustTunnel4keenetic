@@ -1,43 +1,57 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { setAuth } from '../composables/useApi'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { checkAuth } from '../composables/useApi'
 
-const emit = defineEmits<{ (e: 'login'): void }>()
+const props = defineProps<{ authMode: string }>()
+const emit = defineEmits<{ (e: 'authenticated'): void }>()
 
-const username = ref('')
-const password = ref('')
-const error = ref('')
-const loading = ref(false)
+const polling = ref(false)
+const pollTimer = ref<ReturnType<typeof setInterval> | null>(null)
+const routerOpened = ref(false)
 
-async function doLogin() {
-  error.value = ''
-  loading.value = true
+const routerUrl = `${window.location.protocol}//${window.location.hostname}`
 
-  const creds = btoa(`${username.value}:${password.value}`)
+function openRouterLogin() {
+  window.open(routerUrl, '_blank')
+  routerOpened.value = true
+  startPolling()
+}
 
-  try {
-    const resp = await fetch('/api/status', {
-      headers: { Authorization: `Basic ${creds}` },
-    })
-
-    if (resp.status === 401) {
-      error.value = 'Неверное имя пользователя или пароль'
-      return
+function startPolling() {
+  if (pollTimer.value) return
+  polling.value = true
+  pollTimer.value = setInterval(async () => {
+    const result = await checkAuth()
+    if (result.ok) {
+      stopPolling()
+      emit('authenticated')
     }
+  }, 2000)
+}
 
-    if (!resp.ok) {
-      error.value = `Ошибка сервера: ${resp.status}`
-      return
-    }
-
-    setAuth(username.value, password.value)
-    emit('login')
-  } catch {
-    error.value = 'Не удалось подключиться к серверу'
-  } finally {
-    loading.value = false
+function stopPolling() {
+  polling.value = false
+  if (pollTimer.value) {
+    clearInterval(pollTimer.value)
+    pollTimer.value = null
   }
 }
+
+async function retryAuth() {
+  const result = await checkAuth()
+  if (result.ok) {
+    emit('authenticated')
+  }
+}
+
+onMounted(() => {
+  // If NDM mode, start polling immediately in case user is already logged in on router
+  if (props.authMode === 'ndm') {
+    retryAuth()
+  }
+})
+
+onUnmounted(stopPolling)
 </script>
 
 <template>
@@ -53,45 +67,48 @@ async function doLogin() {
         </div>
 
         <h2 class="text-xl font-bold text-center text-gray-900 dark:text-white mb-1">TrustTunnel Manager</h2>
-        <p class="text-sm text-center text-gray-500 dark:text-gray-400 mb-6">Введите учётные данные роутера</p>
 
-        <form @submit.prevent="doLogin" class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Имя пользователя</label>
-            <input
-              v-model="username"
-              type="text"
-              autocomplete="username"
-              required
-              class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
-              placeholder="admin"
-            />
-          </div>
+        <!-- NDM auth mode: redirect to router -->
+        <template v-if="authMode === 'ndm'">
+          <p class="text-sm text-center text-gray-500 dark:text-gray-400 mb-6">
+            Для доступа необходимо войти в веб-интерфейс роутера
+          </p>
 
-          <div>
-            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Пароль</label>
-            <input
-              v-model="password"
-              type="password"
-              autocomplete="current-password"
-              required
-              class="w-full px-3 py-2.5 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition"
-            />
-          </div>
+          <button
+            @click="openRouterLogin"
+            class="w-full py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-medium transition flex items-center justify-center gap-2"
+          >
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+            Войти через роутер
+          </button>
 
-          <div v-if="error" class="text-sm text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2">
-            {{ error }}
+          <div v-if="routerOpened" class="mt-4">
+            <div v-if="polling" class="flex items-center justify-center gap-2 text-sm text-gray-500 dark:text-gray-400">
+              <svg class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Ожидание авторизации...
+            </div>
           </div>
 
           <button
-            type="submit"
-            :disabled="loading"
-            class="w-full py-2.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white font-medium transition disabled:opacity-50"
+            @click="retryAuth"
+            class="w-full mt-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 text-sm hover:bg-gray-50 dark:hover:bg-gray-700 transition"
           >
-            <span v-if="loading">Проверка...</span>
-            <span v-else>Войти</span>
+            Проверить доступ
           </button>
-        </form>
+        </template>
+
+        <!-- Local auth mode: username/password form -->
+        <template v-else>
+          <p class="text-sm text-center text-gray-500 dark:text-gray-400 mb-6">
+            Введите имя пользователя и пароль
+          </p>
+          <LocalLoginForm @authenticated="emit('authenticated')" />
+        </template>
       </div>
     </div>
   </div>
