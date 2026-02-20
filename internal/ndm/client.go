@@ -71,6 +71,7 @@ func (c *Client) RecreateInterface(mode string, tunIdx, proxyIdx int) error {
 		if err := c.RemoveInterface(tunName); err != nil {
 			log.Printf("ndmc: failed to remove %s (may not exist): %v", tunName, err)
 		}
+		c.cleanupMSSClamp(tunIdx)
 		return c.setupProxyInterface(proxyIdx)
 	}
 	// Remove Proxy interface when switching to TUN
@@ -79,6 +80,18 @@ func (c *Client) RecreateInterface(mode string, tunIdx, proxyIdx int) error {
 		log.Printf("ndmc: failed to remove %s (may not exist): %v", proxyName, err)
 	}
 	return c.setupTunInterface(tunIdx)
+}
+
+func (c *Client) cleanupMSSClamp(tunIdx int) {
+	cmd := fmt.Sprintf(
+		`. /opt/trusttunnel_client/ndms-compat.sh 2>/dev/null && fw_cleanup_mss_clamp tun%d`,
+		tunIdx,
+	)
+	if out, err := exec.Command("sh", "-c", cmd).CombinedOutput(); err != nil {
+		log.Printf("MSS clamp cleanup warning: %v: %s", err, strings.TrimSpace(string(out)))
+	} else {
+		log.Printf("MSS clamp rules removed for tun%d", tunIdx)
+	}
 }
 
 func (c *Client) setupProxyInterface(idx int) error {

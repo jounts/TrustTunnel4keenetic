@@ -18,7 +18,7 @@ main() {
     info "TrustTunnel for Keenetic uninstaller"
     echo ""
 
-    # 1. Stop services
+    # 1. Stop services (also cleans up iptables rules via stop_client)
     if [ -x "$INIT_DIR/S99trusttunnel" ]; then
         info "Stopping trusttunnel client..."
         "$INIT_DIR/S99trusttunnel" stop 2>/dev/null || warn "Client was not running"
@@ -28,6 +28,16 @@ main() {
         info "Stopping trusttunnel manager..."
         "$INIT_DIR/S98trusttunnel-manager" stop 2>/dev/null || warn "Manager was not running"
     fi
+
+    # Safety net: clean up any remaining iptables MSS clamp rules
+    info "Cleaning up firewall rules..."
+    for idx in 0 1 2 3; do
+        iptables -t mangle -D FORWARD -o "tun${idx}" -p tcp --tcp-flags SYN,RST SYN \
+            -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+        iptables -t mangle -D FORWARD -i "tun${idx}" -p tcp --tcp-flags SYN,RST SYN \
+            -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || true
+    done
+    nft delete chain ip trusttunnel forward_mss 2>/dev/null || true
 
     # 2. Remove init scripts
     info "Removing init scripts..."

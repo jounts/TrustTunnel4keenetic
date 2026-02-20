@@ -260,5 +260,41 @@ fw_cleanup_mangle_smart() {
     fi
 }
 
+# --- MSS clamping (PPPoE compatibility) ---
+
+fw_setup_mss_clamp() {
+    local iface="$1"
+    if [ "$NDMS_FW_BACKEND" = "nftables" ] && ! command -v iptables > /dev/null 2>&1; then
+        nft add table ip trusttunnel 2>/dev/null
+        nft add chain ip trusttunnel forward_mss \
+            "{ type filter hook forward priority mangle; policy accept; }" 2>/dev/null
+        nft add rule ip trusttunnel forward_mss \
+            oifname "$iface" tcp flags syn tcp option maxseg size set rt mtu 2>/dev/null
+        nft add rule ip trusttunnel forward_mss \
+            iifname "$iface" tcp flags syn tcp option maxseg size set rt mtu 2>/dev/null
+    else
+        iptables -t mangle -C FORWARD -o "$iface" -p tcp --tcp-flags SYN,RST SYN \
+            -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
+        iptables -t mangle -A FORWARD -o "$iface" -p tcp --tcp-flags SYN,RST SYN \
+            -j TCPMSS --clamp-mss-to-pmtu
+        iptables -t mangle -C FORWARD -i "$iface" -p tcp --tcp-flags SYN,RST SYN \
+            -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null || \
+        iptables -t mangle -A FORWARD -i "$iface" -p tcp --tcp-flags SYN,RST SYN \
+            -j TCPMSS --clamp-mss-to-pmtu
+    fi
+}
+
+fw_cleanup_mss_clamp() {
+    local iface="$1"
+    if [ "$NDMS_FW_BACKEND" = "nftables" ] && ! command -v iptables > /dev/null 2>&1; then
+        nft delete chain ip trusttunnel forward_mss 2>/dev/null
+    else
+        iptables -t mangle -D FORWARD -o "$iface" -p tcp --tcp-flags SYN,RST SYN \
+            -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null
+        iptables -t mangle -D FORWARD -i "$iface" -p tcp --tcp-flags SYN,RST SYN \
+            -j TCPMSS --clamp-mss-to-pmtu 2>/dev/null
+    fi
+}
+
 # Initialize compat on source
 ndms_load_compat

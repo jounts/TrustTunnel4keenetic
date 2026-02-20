@@ -25,7 +25,7 @@ if [ -f "$COMPAT_SH" ]; then
     . "$COMPAT_SH"
 fi
 
-if [ "$TT_MODE" = "tun" ]; then
+if [ "$TT_MODE" = "tun" ] || [ "$TT_MODE" = "socks5-tun" ]; then
     TUN_IF="tun${TUN_IDX:-0}"
 
     if ip link show "$TUN_IF" > /dev/null 2>&1; then
@@ -33,6 +33,12 @@ if [ "$TT_MODE" = "tun" ]; then
 
         fw_add_nat_masquerade "$TUN_IF"
         fw_add_forward_accept "$TUN_IF"
+
+        # Restore MSS clamping rules (PPPoE compatibility)
+        if type fw_setup_mss_clamp > /dev/null 2>&1; then
+            fw_setup_mss_clamp "$TUN_IF"
+            log_msg "MSS clamping restored on $TUN_IF"
+        fi
 
         # Restore smart routing mangle rules
         SMART_ROUTING_SH="$TT_DIR/smart-routing.sh"

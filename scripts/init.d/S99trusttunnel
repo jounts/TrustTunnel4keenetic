@@ -209,6 +209,13 @@ start_client() {
         fi
 
         setup_tun_interface
+
+        # Apply MSS clamping for PPPoE compatibility
+        if type fw_setup_mss_clamp > /dev/null 2>&1; then
+            fw_setup_mss_clamp "tun${TUN_IDX}"
+            log_msg "MSS clamping enabled on tun${TUN_IDX}"
+        fi
+
         "$TT_BIN" --config "$TT_CONF" >> "$LOG_FILE" 2>&1 &
 
         # Start smart routing after tunnel is up
@@ -232,6 +239,15 @@ start_client() {
 
 stop_client() {
     stop_watchdog
+
+    # Clean up MSS clamping rules
+    load_config
+    if [ "$TT_MODE" = "tun" ] || [ "$TT_MODE" = "socks5-tun" ]; then
+        if type fw_cleanup_mss_clamp > /dev/null 2>&1; then
+            fw_cleanup_mss_clamp "tun${TUN_IDX}"
+            log_msg "MSS clamping removed from tun${TUN_IDX}"
+        fi
+    fi
 
     # Stop smart routing before stopping the client
     if [ "$SR_ENABLED" = "yes" ] && type sr_stop > /dev/null 2>&1; then
