@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 
-const props = defineProps<{ authMode: string }>()
+defineProps<{ authMode: string }>()
 const emit = defineEmits<{ (e: 'authenticated'): void }>()
 
 const username = ref('')
@@ -14,31 +14,17 @@ async function doLogin() {
   loading.value = true
 
   try {
-    if (props.authMode === 'local') {
-      const creds = btoa(`${username.value}:${password.value}`)
-      const resp = await fetch('/api/auth/check', {
-        headers: { Authorization: `Basic ${creds}` },
-      })
-      const data = await resp.json()
-      if (!data.authenticated) {
-        error.value = 'Неверное имя пользователя или пароль'
-        return
-      }
-      localStorage.setItem('tt_basic_auth', creds)
-      emit('authenticated')
-    } else {
-      const resp = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.value, password: password.value }),
-      })
-      const data = await resp.json()
-      if (!data.ok) {
-        error.value = data.error || 'Ошибка авторизации'
-        return
-      }
-      emit('authenticated')
+    const resp = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: username.value, password: password.value }),
+    })
+    const data = await resp.json()
+    if (!data.ok) {
+      error.value = data.error || 'Ошибка авторизации'
+      return
     }
+    emit('authenticated')
   } catch {
     error.value = 'Не удалось подключиться к серверу'
   } finally {

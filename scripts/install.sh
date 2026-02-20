@@ -177,6 +177,10 @@ install_scripts() {
     curl -fsSL "$base_url/install.sh" -o "$INSTALL_DIR/install.sh"
     chmod 755 "$INSTALL_DIR/install.sh"
 
+    info "Installing configure script..."
+    curl -fsSL "$base_url/configure.sh" -o "$INSTALL_DIR/configure.sh"
+    chmod 755 "$INSTALL_DIR/configure.sh"
+
     info "Installing uninstall script..."
     curl -fsSL "$base_url/uninstall.sh" -o "$INSTALL_DIR/uninstall.sh"
     chmod 755 "$INSTALL_DIR/uninstall.sh"
@@ -223,11 +227,8 @@ MODECONF
     if [ ! -f "$INSTALL_DIR/manager.conf" ]; then
         cat > "$INSTALL_DIR/manager.conf" << 'MGRCONF'
 LISTEN_ADDR=":8080"
-# AUTH_MODE: "ndm" (Keenetic router accounts), "local" (USERNAME/PASSWORD below), "none" (disabled)
-# Default (empty): if PASSWORD is set → local, otherwise → ndm
-AUTH_MODE=""
-USERNAME="admin"
-PASSWORD=""
+# AUTH_MODE: "ndm" (Keenetic router accounts, default), "none" (disabled)
+AUTH_MODE="ndm"
 MGRCONF
         info "Default manager config created"
     fi

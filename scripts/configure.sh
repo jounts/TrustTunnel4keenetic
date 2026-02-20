@@ -87,9 +87,6 @@ ask "Порт веб-панели [8080]:"
 read -r web_port
 web_port=${web_port:-8080}
 
-ask "Пароль для веб-панели (пусто = без пароля):"
-read -r web_password
-
 # TrustTunnel client config
 echo ""
 ask "Файл конфигурации клиента (TOML)."
@@ -177,8 +174,7 @@ info "Конфигурация режима сохранена: $MODE_CONF"
 # Write manager.conf
 cat > "$MANAGER_CONF" << EOF
 LISTEN_ADDR=":$web_port"
-USERNAME="admin"
-PASSWORD="$web_password"
+AUTH_MODE="ndm"
 EOF
 info "Конфигурация менеджера сохранена: $MANAGER_CONF"
 

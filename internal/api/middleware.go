@@ -1,7 +1,6 @@
 package api
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -22,15 +21,12 @@ func withLogging(next http.Handler) http.Handler {
 type AuthMode int
 
 const (
-	AuthNone  AuthMode = iota
-	AuthLocal
+	AuthNone AuthMode = iota
 	AuthNDM
 )
 
 func (m AuthMode) String() string {
 	switch m {
-	case AuthLocal:
-		return "local"
 	case AuthNDM:
 		return "ndm"
 	default:
@@ -40,8 +36,6 @@ func (m AuthMode) String() string {
 
 type AuthConfig struct {
 	Mode             AuthMode
-	Username         string
-	Password         string
 	NDMAuthenticator *ndm.Authenticator
 }
 
@@ -66,18 +60,9 @@ func withAuth(cfg AuthConfig, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var valid bool
 
-		switch cfg.Mode {
-		case AuthNDM:
-			if cfg.NDMAuthenticator != nil {
-				if c, err := r.Cookie(ndm.SessionCookieName); err == nil {
-					valid = cfg.NDMAuthenticator.ValidateSession(c.Value)
-				}
-			}
-		case AuthLocal:
-			u, p, ok := r.BasicAuth()
-			if ok {
-				valid = subtle.ConstantTimeCompare([]byte(u), []byte(cfg.Username)) == 1 &&
-					subtle.ConstantTimeCompare([]byte(p), []byte(cfg.Password)) == 1
+		if cfg.Mode == AuthNDM && cfg.NDMAuthenticator != nil {
+			if c, err := r.Cookie(ndm.SessionCookieName); err == nil {
+				valid = cfg.NDMAuthenticator.ValidateSession(c.Value)
 			}
 		}
 

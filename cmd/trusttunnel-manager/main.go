@@ -81,16 +81,12 @@ func main() {
 
 type appConfig struct {
 	addr     string
-	authMode string // "ndm", "local", "" (empty = auto)
-	username string
-	password string
+	authMode string // "ndm" (default), "none"
 }
 
 func loadConfig(path, defaultAddr string) appConfig {
 	cfg := appConfig{
-		addr:     defaultAddr,
-		username: "admin",
-		password: "",
+		addr: defaultAddr,
 	}
 
 	data, err := os.ReadFile(path)
@@ -105,10 +101,6 @@ func loadConfig(path, defaultAddr string) appConfig {
 			cfg.addr = v
 		case "AUTH_MODE":
 			cfg.authMode = v
-		case "USERNAME":
-			cfg.username = v
-		case "PASSWORD":
-			cfg.password = v
 		}
 	}
 	return cfg
@@ -152,37 +144,11 @@ func parseKV(line string) (string, string) {
 
 func buildAuthConfig(cfg appConfig) api.AuthConfig {
 	switch cfg.authMode {
-	case "ndm":
-		log.Printf("Auth mode: NDM (Keenetic router accounts)")
-		return api.AuthConfig{
-			Mode:             api.AuthNDM,
-			NDMAuthenticator: ndm.NewAuthenticator("http://localhost:79"),
-		}
-	case "local":
-		if cfg.password == "" {
-			log.Printf("Auth mode: none (AUTH_MODE=local but PASSWORD is empty)")
-			return api.AuthConfig{Mode: api.AuthNone}
-		}
-		log.Printf("Auth mode: local (static username/password)")
-		return api.AuthConfig{
-			Mode:     api.AuthLocal,
-			Username: cfg.username,
-			Password: cfg.password,
-		}
 	case "none", "off":
 		log.Printf("Auth mode: none (disabled)")
 		return api.AuthConfig{Mode: api.AuthNone}
 	default:
-		// Auto-detect: if password is set → local, otherwise → ndm
-		if cfg.password != "" {
-			log.Printf("Auth mode: local (auto, PASSWORD is set)")
-			return api.AuthConfig{
-				Mode:     api.AuthLocal,
-				Username: cfg.username,
-				Password: cfg.password,
-			}
-		}
-		log.Printf("Auth mode: NDM (auto, no PASSWORD configured)")
+		log.Printf("Auth mode: NDM (Keenetic router accounts)")
 		return api.AuthConfig{
 			Mode:             api.AuthNDM,
 			NDMAuthenticator: ndm.NewAuthenticator("http://localhost:79"),

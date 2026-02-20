@@ -83,11 +83,6 @@ func (h *handlers) authCheck(w http.ResponseWriter, r *http.Request) {
 				authenticated = h.deps.Auth.NDMAuthenticator.ValidateSession(c.Value)
 			}
 		}
-	case AuthLocal:
-		u, p, ok := r.BasicAuth()
-		if ok {
-			authenticated = u == h.deps.Auth.Username && p == h.deps.Auth.Password
-		}
 	}
 
 	writeJSON(w, http.StatusOK, checkResponse{

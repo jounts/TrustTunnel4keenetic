@@ -72,11 +72,8 @@ MODEOF
 
 cat > "$DATA/opt/trusttunnel_client/manager.conf" << 'MGREOF'
 LISTEN_ADDR=":8080"
-# AUTH_MODE: "ndm" (Keenetic router accounts), "local" (USERNAME/PASSWORD below), "none" (disabled)
-# Default (empty): if PASSWORD is set → local, otherwise → ndm
-AUTH_MODE=""
-USERNAME="admin"
-PASSWORD=""
+# AUTH_MODE: "ndm" (Keenetic router accounts, default), "none" (disabled)
+AUTH_MODE="ndm"
 MGREOF
 
 touch "$DATA/opt/trusttunnel_client/trusttunnel_client.toml"

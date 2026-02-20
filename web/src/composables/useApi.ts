@@ -2,19 +2,12 @@ import { ref } from 'vue'
 
 const BASE = '/api'
 
-function localAuthHeaders(): Record<string, string> {
-  const creds = localStorage.getItem('tt_basic_auth')
-  if (creds) return { Authorization: `Basic ${creds}` }
-  return {}
-}
-
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const resp = await fetch(`${BASE}${path}`, {
     ...options,
     credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
-      ...localAuthHeaders(),
       ...(options.headers || {}),
     },
   })
@@ -109,7 +102,6 @@ export async function checkAuth(): Promise<{ authenticated: boolean; authMode: s
   try {
     const resp = await fetch(`${BASE}/auth/check`, {
       credentials: 'same-origin',
-      headers: { ...localAuthHeaders() },
     })
     const data = await resp.json()
     return { authenticated: data.authenticated, authMode: data.auth_mode }
@@ -119,7 +111,6 @@ export async function checkAuth(): Promise<{ authenticated: boolean; authMode: s
 }
 
 export async function logout(): Promise<void> {
-  localStorage.removeItem('tt_basic_auth')
   await fetch(`${BASE}/auth/logout`, {
     method: 'POST',
     credentials: 'same-origin',
