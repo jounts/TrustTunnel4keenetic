@@ -96,27 +96,35 @@ func (c *Client) cleanupMSSClamp(tunIdx int) {
 
 func (c *Client) setupProxyInterface(idx int) error {
 	name := fmt.Sprintf("Proxy%d", idx)
+
+	// Create the interface first; NDM needs a separate RCI round-trip
+	// to register it before configuration commands can reference it.
+	if err := c.runRCI([]string{fmt.Sprintf("interface %s", name)}); err != nil {
+		return err
+	}
+	time.Sleep(500 * time.Millisecond)
+
 	commands := []string{
-		fmt.Sprintf("interface %s", name),
 		fmt.Sprintf("interface %s description \"TrustTunnel Proxy %d\"", name, idx),
 		fmt.Sprintf("interface %s proxy protocol socks5", name),
 		fmt.Sprintf("interface %s proxy upstream 127.0.0.1 1080", name),
 		fmt.Sprintf("interface %s proxy connect", name),
-	}
-
-	// ip global auto syntax is the same on NDMS 4 and 5
-	commands = append(commands,
 		fmt.Sprintf("interface %s ip global auto", name),
 		fmt.Sprintf("interface %s security-level public", name),
 		"system configuration save",
-	)
+	}
 	return c.runRCI(commands)
 }
 
 func (c *Client) setupTunInterface(idx int) error {
 	name := fmt.Sprintf("OpkgTun%d", idx)
+
+	if err := c.runRCI([]string{fmt.Sprintf("interface %s", name)}); err != nil {
+		return err
+	}
+	time.Sleep(500 * time.Millisecond)
+
 	commands := []string{
-		fmt.Sprintf("interface %s", name),
 		fmt.Sprintf("interface %s description \"TrustTunnel TUN %d\"", name, idx),
 		fmt.Sprintf("interface %s ip address 172.16.219.2 255.255.255.255", name),
 		fmt.Sprintf("interface %s ip global auto", name),
@@ -124,7 +132,6 @@ func (c *Client) setupTunInterface(idx int) error {
 		fmt.Sprintf("interface %s ip tcp adjust-mss pmtu", name),
 		fmt.Sprintf("interface %s security-level public", name),
 		fmt.Sprintf("interface %s up", name),
-		fmt.Sprintf("ip route default 172.16.219.2 %s", name),
 		"system configuration save",
 	}
 	return c.runRCI(commands)
