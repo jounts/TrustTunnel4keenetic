@@ -197,6 +197,10 @@ start_client() {
 
     log_msg "Starting TrustTunnel client in $TT_MODE mode (NDMS ${NDMS_MAJOR:-?}, FW: ${NDMS_FW_BACKEND:-?})"
 
+    # Ensure OpenSSL can find CA certificates on Entware
+    export SSL_CERT_FILE="${SSL_CERT_FILE:-/opt/etc/ssl/certs/ca-certificates.crt}"
+    export SSL_CERT_DIR="${SSL_CERT_DIR:-/opt/etc/ssl/certs}"
+
     if [ "$TT_MODE" = "tun" ]; then
         if ! find_free_tun_idx; then
             log_msg "Cannot start in TUN mode: no free interface"
