@@ -1,97 +1,136 @@
 package ndm
 
 import (
+	"crypto/md5"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"sync"
 	"time"
 )
 
 type Authenticator struct {
-	baseURL    string
+	ndmURL     string
 	httpClient *http.Client
-	cache      map[string]cacheEntry
+	sessions   map[string]session
 	mu         sync.RWMutex
-	cacheTTL   time.Duration
+	sessionTTL time.Duration
 }
 
-type cacheEntry struct {
-	valid   bool
+type session struct {
+	user    string
 	expires time.Time
 }
 
-func NewAuthenticator(baseURL string) *Authenticator {
-	return &Authenticator{
-		baseURL: strings.TrimRight(baseURL, "/"),
+const SessionCookieName = "tt_session"
+
+func NewAuthenticator(ndmURL string) *Authenticator {
+	a := &Authenticator{
+		ndmURL: strings.TrimRight(ndmURL, "/"),
 		httpClient: &http.Client{
-			Timeout: 3 * time.Second,
+			Timeout: 5 * time.Second,
 			CheckRedirect: func(req *http.Request, via []*http.Request) error {
 				return http.ErrUseLastResponse
 			},
 		},
-		cache:    make(map[string]cacheEntry),
-		cacheTTL: 60 * time.Second,
+		sessions:   make(map[string]session),
+		sessionTTL: 24 * time.Hour,
 	}
+	go a.cleanupLoop()
+	return a
 }
 
-// VerifyByCookies checks if the provided cookies represent a valid
-// Keenetic NDM session by forwarding them to the NDM auth endpoint.
-func (a *Authenticator) VerifyByCookies(cookies []*http.Cookie) bool {
-	if len(cookies) == 0 {
-		return false
-	}
-
-	key := cookieCacheKey(cookies)
-
-	a.mu.RLock()
-	if entry, ok := a.cache[key]; ok && time.Now().Before(entry.expires) {
-		a.mu.RUnlock()
-		return entry.valid
-	}
-	a.mu.RUnlock()
-
-	valid := a.checkNDMSession(cookies)
-
-	a.mu.Lock()
-	a.cache[key] = cacheEntry{valid: valid, expires: time.Now().Add(a.cacheTTL)}
-	now := time.Now()
-	for k, v := range a.cache {
-		if now.After(v.expires) {
-			delete(a.cache, k)
-		}
-	}
-	a.mu.Unlock()
-
-	return valid
-}
-
-func (a *Authenticator) checkNDMSession(cookies []*http.Cookie) bool {
-	req, err := http.NewRequest("GET", a.baseURL+"/auth", nil)
+// Login validates credentials against the Keenetic NDM API using
+// the challenge-response protocol. Returns a session token on success.
+func (a *Authenticator) Login(username, password string) (string, error) {
+	resp, err := a.httpClient.Get(a.ndmURL + "/auth")
 	if err != nil {
-		return false
-	}
-	for _, c := range cookies {
-		req.AddCookie(c)
-	}
-
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return false
+		return "", fmt.Errorf("NDM unreachable: %w", err)
 	}
 	resp.Body.Close()
 
-	return resp.StatusCode == http.StatusOK
+	if resp.StatusCode == http.StatusOK {
+		return a.createSession(username), nil
+	}
+	if resp.StatusCode != http.StatusUnauthorized {
+		return "", fmt.Errorf("unexpected NDM status: %d", resp.StatusCode)
+	}
+
+	realm := resp.Header.Get("X-NDM-Realm")
+	challenge := resp.Header.Get("X-NDM-Challenge")
+	if realm == "" || challenge == "" {
+		return "", fmt.Errorf("NDM did not return auth challenge")
+	}
+
+	md5sum := md5.Sum([]byte(username + ":" + realm + ":" + password))
+	md5hex := fmt.Sprintf("%x", md5sum)
+	shasum := sha256.Sum256([]byte(challenge + md5hex))
+	shahex := fmt.Sprintf("%x", shasum)
+
+	body := fmt.Sprintf(`{"login":%q,"password":%q}`, username, shahex)
+	req, err := http.NewRequest("POST", a.ndmURL+"/auth", strings.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	authResp, err := a.httpClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("NDM auth request failed: %w", err)
+	}
+	authResp.Body.Close()
+
+	if authResp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("invalid credentials")
+	}
+
+	return a.createSession(username), nil
 }
 
-func cookieCacheKey(cookies []*http.Cookie) string {
-	pairs := make([]string, 0, len(cookies))
-	for _, c := range cookies {
-		pairs = append(pairs, c.Name+"="+c.Value)
+// ValidateSession checks if a session token is valid and not expired.
+func (a *Authenticator) ValidateSession(token string) bool {
+	if token == "" {
+		return false
 	}
-	sort.Strings(pairs)
-	h := sha256.Sum256([]byte(strings.Join(pairs, ";")))
-	return fmt.Sprintf("%x", h)
+	a.mu.RLock()
+	s, ok := a.sessions[token]
+	a.mu.RUnlock()
+	return ok && time.Now().Before(s.expires)
+}
+
+// DestroySession removes a session token.
+func (a *Authenticator) DestroySession(token string) {
+	a.mu.Lock()
+	delete(a.sessions, token)
+	a.mu.Unlock()
+}
+
+func (a *Authenticator) createSession(user string) string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	token := hex.EncodeToString(b)
+
+	a.mu.Lock()
+	a.sessions[token] = session{user: user, expires: time.Now().Add(a.sessionTTL)}
+	a.mu.Unlock()
+
+	return token
+}
+
+func (a *Authenticator) cleanupLoop() {
+	ticker := time.NewTicker(10 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		now := time.Now()
+		a.mu.Lock()
+		for k, s := range a.sessions {
+			if now.After(s.expires) {
+				delete(a.sessions, k)
+			}
+		}
+		a.mu.Unlock()
+	}
 }

@@ -2,14 +2,6 @@ import { ref } from 'vue'
 
 const BASE = '/api'
 
-export class AuthRequiredError extends Error {
-  authMode: string
-  constructor(authMode: string) {
-    super('Unauthorized')
-    this.authMode = authMode
-  }
-}
-
 function localAuthHeaders(): Record<string, string> {
   const creds = localStorage.getItem('tt_basic_auth')
   if (creds) return { Authorization: `Basic ${creds}` }
@@ -28,8 +20,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   })
 
   if (resp.status === 401) {
-    const body = await resp.json().catch(() => ({ auth_mode: 'ndm' }))
-    throw new AuthRequiredError(body.auth_mode || 'ndm')
+    window.location.reload()
+    throw new Error('Unauthorized')
   }
 
   if (!resp.ok) {
@@ -113,20 +105,25 @@ export interface RoutingDomains {
   domains: string
 }
 
-export async function checkAuth(): Promise<{ ok: boolean; authMode: string }> {
+export async function checkAuth(): Promise<{ authenticated: boolean; authMode: string }> {
   try {
-    const resp = await fetch(`${BASE}/status`, {
+    const resp = await fetch(`${BASE}/auth/check`, {
       credentials: 'same-origin',
       headers: { ...localAuthHeaders() },
     })
-    if (resp.status === 401) {
-      const body = await resp.json().catch(() => ({ auth_mode: 'ndm' }))
-      return { ok: false, authMode: body.auth_mode || 'ndm' }
-    }
-    return { ok: resp.ok, authMode: 'none' }
+    const data = await resp.json()
+    return { authenticated: data.authenticated, authMode: data.auth_mode }
   } catch {
-    return { ok: false, authMode: 'ndm' }
+    return { authenticated: false, authMode: 'ndm' }
   }
+}
+
+export async function logout(): Promise<void> {
+  localStorage.removeItem('tt_basic_auth')
+  await fetch(`${BASE}/auth/logout`, {
+    method: 'POST',
+    credentials: 'same-origin',
+  }).catch(() => {})
 }
 
 export function useApi() {
@@ -139,10 +136,6 @@ export function useApi() {
     try {
       return await fn()
     } catch (e: any) {
-      if (e instanceof AuthRequiredError) {
-        window.location.reload()
-        return null
-      }
       error.value = e.message
       return null
     } finally {

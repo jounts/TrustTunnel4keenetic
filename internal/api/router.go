@@ -41,7 +41,14 @@ func NewRouter(deps Dependencies) http.Handler {
 
 	apiHandler := withAuth(deps.Auth, withCORS(mux))
 
+	// Auth endpoints are outside withAuth (accessible without session)
+	authMux := http.NewServeMux()
+	authMux.HandleFunc("/api/auth/login", methodOnly("POST", h.authLogin))
+	authMux.HandleFunc("/api/auth/logout", methodOnly("POST", h.authLogout))
+	authMux.HandleFunc("/api/auth/check", methodOnly("GET", h.authCheck))
+
 	root := http.NewServeMux()
+	root.Handle("/api/auth/", withCORS(authMux))
 	root.Handle("/api/", apiHandler)
 	root.Handle("/", spaHandler(deps.StaticFS))
 

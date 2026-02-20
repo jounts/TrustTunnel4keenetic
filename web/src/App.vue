@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue'
 import AppLayout from './components/AppLayout.vue'
 import LoginForm from './components/LoginForm.vue'
-import { checkAuth } from './composables/useApi'
+import { checkAuth, logout } from './composables/useApi'
 
 const authChecked = ref(false)
 const needsLogin = ref(false)
@@ -10,7 +10,7 @@ const authMode = ref('ndm')
 
 async function doCheckAuth() {
   const result = await checkAuth()
-  needsLogin.value = !result.ok
+  needsLogin.value = !result.authenticated
   authMode.value = result.authMode
   authChecked.value = true
 }
@@ -19,7 +19,8 @@ function onAuthenticated() {
   needsLogin.value = false
 }
 
-function onLogout() {
+async function onLogout() {
+  await logout()
   needsLogin.value = true
 }
 

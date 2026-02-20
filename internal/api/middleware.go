@@ -23,8 +23,8 @@ type AuthMode int
 
 const (
 	AuthNone  AuthMode = iota
-	AuthLocal          // static username/password from manager.conf
-	AuthNDM            // validate session cookies against Keenetic NDM API
+	AuthLocal
+	AuthNDM
 )
 
 func (m AuthMode) String() string {
@@ -45,9 +45,18 @@ type AuthConfig struct {
 	NDMAuthenticator *ndm.Authenticator
 }
 
-type authError struct {
+type authErrorResp struct {
 	Error    string `json:"error"`
 	AuthMode string `json:"auth_mode"`
+}
+
+func sendUnauthorized(w http.ResponseWriter, mode AuthMode) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	json.NewEncoder(w).Encode(authErrorResp{
+		Error:    "unauthorized",
+		AuthMode: mode.String(),
+	})
 }
 
 func withAuth(cfg AuthConfig, next http.Handler) http.Handler {
@@ -60,7 +69,9 @@ func withAuth(cfg AuthConfig, next http.Handler) http.Handler {
 		switch cfg.Mode {
 		case AuthNDM:
 			if cfg.NDMAuthenticator != nil {
-				valid = cfg.NDMAuthenticator.VerifyByCookies(r.Cookies())
+				if c, err := r.Cookie(ndm.SessionCookieName); err == nil {
+					valid = cfg.NDMAuthenticator.ValidateSession(c.Value)
+				}
 			}
 		case AuthLocal:
 			u, p, ok := r.BasicAuth()
@@ -71,12 +82,7 @@ func withAuth(cfg AuthConfig, next http.Handler) http.Handler {
 		}
 
 		if !valid {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(authError{
-				Error:    "unauthorized",
-				AuthMode: cfg.Mode.String(),
-			})
+			sendUnauthorized(w, cfg.Mode)
 			return
 		}
 
