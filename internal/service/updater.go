@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -81,7 +82,7 @@ func (u *Updater) Check() (*UpdateInfo, error) {
 
 	if latest, err := u.latestRelease(clientRepo); err == nil {
 		info.ClientLatestVersion = latest
-		info.ClientUpdateAvailable = latest != "" && latest != info.ClientCurrentVersion
+		info.ClientUpdateAvailable = isNewer(latest, info.ClientCurrentVersion)
 	} else {
 		info.ClientCheckError = err.Error()
 		log.Printf("[update] failed to check client release: %v", err)
@@ -92,7 +93,7 @@ func (u *Updater) Check() (*UpdateInfo, error) {
 
 	if latest, err := u.latestRelease(managerRepo); err == nil {
 		info.ManagerLatestVersion = latest
-		info.ManagerUpdateAvailable = latest != "" && latest != info.ManagerCurrentVersion
+		info.ManagerUpdateAvailable = isNewer(latest, info.ManagerCurrentVersion)
 	} else {
 		info.ManagerCheckError = err.Error()
 		log.Printf("[update] failed to check manager release: %v", err)
@@ -377,6 +378,48 @@ func (u *Updater) download(url, dest string) error {
 	}
 	log.Printf("[update] saved %d bytes to %s", n, dest)
 	return nil
+}
+
+// isNewer returns true if remote version is strictly newer than local.
+// Handles formats like "v0.1.1-alpha.15", "v0.99.105", "0.1.0".
+func isNewer(remote, local string) bool {
+	if remote == "" || local == "" || remote == local {
+		return false
+	}
+	rParts := parseVersion(remote)
+	lParts := parseVersion(local)
+	for i := 0; i < len(rParts) || i < len(lParts); i++ {
+		r, l := 0, 0
+		if i < len(rParts) {
+			r = rParts[i]
+		}
+		if i < len(lParts) {
+			l = lParts[i]
+		}
+		if r > l {
+			return true
+		}
+		if r < l {
+			return false
+		}
+	}
+	return false
+}
+
+// parseVersion extracts numeric components from a version string.
+// "v0.1.1-alpha.15" → [0, 1, 1, 15]
+// "v0.99.105" → [0, 99, 105]
+func parseVersion(v string) []int {
+	v = strings.TrimPrefix(v, "v")
+	var parts []int
+	for _, seg := range strings.FieldsFunc(v, func(r rune) bool {
+		return !('0' <= r && r <= '9')
+	}) {
+		if n, err := strconv.Atoi(seg); err == nil {
+			parts = append(parts, n)
+		}
+	}
+	return parts
 }
 
 func detectArch() string {
