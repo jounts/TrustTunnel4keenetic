@@ -189,8 +189,15 @@ sr_setup_routing() {
     fi
     . "$SR_ORIG_GW_FILE"
 
-    # Create policy routing table for direct traffic
-    ip route add default via "$GW" dev "$DEV" table "$SR_TABLE" 2>/dev/null
+    # Check for conflicts with existing policy routing rules
+    if ip rule show 2>/dev/null | grep -q "fwmark $SR_FWMARK"; then
+        sr_log "WARNING: fwmark $SR_FWMARK already in use by another rule, possible VPN conflict"
+    fi
+    if ip route show table "$SR_TABLE" 2>/dev/null | grep -q "default"; then
+        sr_log "WARNING: routing table $SR_TABLE already has a default route, possible VPN conflict"
+    fi
+
+    ip route replace default via "$GW" dev "$DEV" table "$SR_TABLE" 2>/dev/null
     ip rule add fwmark "$SR_FWMARK" table "$SR_TABLE" priority 100 2>/dev/null
 
     sr_log "Policy routing configured: mark $SR_FWMARK -> table $SR_TABLE (gw=$GW dev=$DEV)"

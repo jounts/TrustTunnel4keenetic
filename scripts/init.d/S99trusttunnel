@@ -98,6 +98,25 @@ write_status_json() {
 EOF
 }
 
+find_free_tun_idx() {
+    local target="tun${TUN_IDX}"
+    if ip link show "$target" > /dev/null 2>&1; then
+        log_msg "WARNING: $target already in use by another process, looking for free index"
+        local try_idx=0
+        while [ $try_idx -le 9 ]; do
+            if ! ip link show "tun${try_idx}" > /dev/null 2>&1; then
+                TUN_IDX="$try_idx"
+                log_msg "Auto-selected TUN_IDX=$TUN_IDX (tun${try_idx} is free)"
+                return 0
+            fi
+            try_idx=$((try_idx + 1))
+        done
+        log_msg "ERROR: No free tun interface found (tun0-tun9 all occupied)"
+        return 1
+    fi
+    return 0
+}
+
 setup_tun_interface() {
     local tun_name="OpkgTun${TUN_IDX}"
     log_msg "Setting up TUN interface: $tun_name"
@@ -113,26 +132,35 @@ setup_tun_interface() {
         "interface $tun_name up"
 
     # Wait for the kernel interface to appear and rename it.
-    # NDMS 4 creates "nwg{N}", NDMS 5 may use a different prefix.
+    # NDMS creates a kernel interface for OpkgTun; its name varies by version.
     local target_name="tun${TUN_IDX}"
     local retries=0
     while [ $retries -lt 30 ]; do
-        # Check if already named correctly
         if ip link show "$target_name" > /dev/null 2>&1; then
-            log_msg "Interface $target_name already exists"
+            log_msg "Interface $target_name ready"
             break
         fi
 
-        # Auto-detect kernel name from known prefixes
+        # Verify our NDM interface exists before searching for kernel device.
+        # This prevents accidentally grabbing interfaces owned by WireGuard/OpenVPN.
+        local ndm_exists=""
+        ndm_exists=$(curl -sf "http://localhost:79/rci/show/interface/OpkgTun${TUN_IDX}" 2>/dev/null) || true
+        if [ -z "$ndm_exists" ] || echo "$ndm_exists" | grep -q '"error"'; then
+            sleep 1
+            retries=$((retries + 1))
+            continue
+        fi
+
+        # Only look for prefixes that NDMS uses for opkg TUN interfaces (not wg)
         local kern_name=""
-        for prefix in nwg tun wg utun; do
+        for prefix in nwg utun; do
             if ip link show "${prefix}${TUN_IDX}" > /dev/null 2>&1; then
                 kern_name="${prefix}${TUN_IDX}"
                 break
             fi
         done
 
-        if [ -n "$kern_name" ] && [ "$kern_name" != "$target_name" ]; then
+        if [ -n "$kern_name" ]; then
             ip link set "$kern_name" name "$target_name"
             log_msg "Renamed $kern_name to $target_name (NDMS ${NDMS_MAJOR:-?})"
             break
@@ -170,6 +198,11 @@ start_client() {
     log_msg "Starting TrustTunnel client in $TT_MODE mode (NDMS ${NDMS_MAJOR:-?}, FW: ${NDMS_FW_BACKEND:-?})"
 
     if [ "$TT_MODE" = "tun" ]; then
+        if ! find_free_tun_idx; then
+            log_msg "Cannot start in TUN mode: no free interface"
+            return 1
+        fi
+
         # Save original gateway before tunnel setup (needed for smart routing)
         if [ "$SR_ENABLED" = "yes" ] && type sr_save_orig_gateway > /dev/null 2>&1; then
             sr_save_orig_gateway
