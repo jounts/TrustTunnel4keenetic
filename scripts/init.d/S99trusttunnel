@@ -402,9 +402,31 @@ stop_client() {
         rm -f "$PID_FILE"
     fi
 
+    # Remove NDMS interfaces so the router doesn't keep a dead
+    # Proxy/OpkgTun as the active internet connection.
+    remove_ndm_interface
+
     rm -f "$START_TS_FILE" "$HC_STATE_FILE"
     write_status_json
     log_msg "Stopped"
+}
+
+remove_ndm_interface() {
+    load_config
+    if [ "$TT_MODE" = "tun" ] || [ "$TT_MODE" = "socks5-tun" ]; then
+        local name="OpkgTun${TUN_IDX}"
+        log_msg "Removing NDMS interface $name"
+        ndm_cmd \
+            "no interface $name" \
+            "no ip route default 172.16.219.2 $name" \
+            "system configuration save"
+    else
+        local name="Proxy${PROXY_IDX}"
+        log_msg "Removing NDMS interface $name"
+        ndm_cmd \
+            "no interface $name" \
+            "system configuration save"
+    fi
 }
 
 health_check() {

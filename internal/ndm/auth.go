@@ -47,16 +47,45 @@ func NewAuthenticator(rciURL string) *Authenticator {
 		sessionTTL: 24 * time.Hour,
 	}
 
-	if ip, err := a.detectLANIP(); err == nil {
-		a.authURL = fmt.Sprintf("http://%s", ip)
-		log.Printf("NDM auth URL: %s (auto-detected from Bridge0)", a.authURL)
-	} else {
-		a.authURL = strings.Replace(a.rciURL, ":79", "", 1)
-		log.Printf("NDM auth URL: %s (fallback, Bridge0 detection failed: %v)", a.authURL, err)
-	}
+	a.authURL = a.resolveAuthURL()
 
 	go a.cleanupLoop()
 	return a
+}
+
+func (a *Authenticator) resolveAuthURL() string {
+	if ip, err := a.detectLANIP(); err == nil {
+		url := fmt.Sprintf("http://%s", ip)
+		log.Printf("NDM auth URL: %s (auto-detected from Bridge0)", url)
+		return url
+	}
+
+	for _, iface := range []string{"Bridge0", "Home", "ISP"} {
+		if ip := a.detectInterfaceIP(iface); ip != "" {
+			url := fmt.Sprintf("http://%s", ip)
+			log.Printf("NDM auth URL: %s (from interface %s)", url, iface)
+			return url
+		}
+	}
+
+	fallback := "http://192.168.1.1"
+	log.Printf("NDM auth URL: %s (hardcoded fallback, all interface detection failed)", fallback)
+	return fallback
+}
+
+func (a *Authenticator) detectInterfaceIP(name string) string {
+	resp, err := a.httpClient.Get(a.rciURL + "/rci/show/interface/" + name)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	var iface struct {
+		Address string `json:"address"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&iface); err != nil {
+		return ""
+	}
+	return iface.Address
 }
 
 func (a *Authenticator) detectLANIP() (string, error) {
@@ -81,23 +110,38 @@ func (a *Authenticator) detectLANIP() (string, error) {
 // Login validates credentials against the Keenetic NDM API using
 // the challenge-response protocol. Returns a session token on success.
 func (a *Authenticator) Login(username, password string) (string, error) {
-	resp, err := a.httpClient.Get(a.authURL + "/auth")
+	authURL := a.authURL + "/auth"
+
+	resp, err := a.httpClient.Get(authURL)
 	if err != nil {
-		return "", fmt.Errorf("NDM unreachable: %w", err)
+		return "", fmt.Errorf("NDM unreachable at %s: %w", authURL, err)
 	}
 	resp.Body.Close()
+
+	// Follow scheme-change redirects (HTTP → HTTPS).
+	if isRedirect(resp.StatusCode) {
+		if loc := resp.Header.Get("Location"); loc != "" {
+			log.Printf("NDM auth: following redirect to %s", loc)
+			authURL = loc
+			resp, err = a.httpClient.Get(authURL)
+			if err != nil {
+				return "", fmt.Errorf("NDM unreachable after redirect to %s: %w", authURL, err)
+			}
+			resp.Body.Close()
+		}
+	}
 
 	if resp.StatusCode == http.StatusOK {
 		return a.createSession(username), nil
 	}
 	if resp.StatusCode != http.StatusUnauthorized {
-		return "", fmt.Errorf("unexpected NDM status: %d", resp.StatusCode)
+		return "", fmt.Errorf("unexpected NDM status %d from %s", resp.StatusCode, authURL)
 	}
 
 	realm := resp.Header.Get("X-NDM-Realm")
 	challenge := resp.Header.Get("X-NDM-Challenge")
 	if realm == "" || challenge == "" {
-		return "", fmt.Errorf("NDM did not return auth challenge")
+		return "", fmt.Errorf("NDM did not return auth challenge (realm=%q, challenge=%q)", realm, challenge)
 	}
 
 	cookies := resp.Cookies()
@@ -108,7 +152,7 @@ func (a *Authenticator) Login(username, password string) (string, error) {
 	shahex := fmt.Sprintf("%x", shasum)
 
 	body := fmt.Sprintf(`{"login":%q,"password":%q}`, username, shahex)
-	req, err := http.NewRequest("POST", a.authURL+"/auth", strings.NewReader(body))
+	req, err := http.NewRequest("POST", authURL, strings.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -119,15 +163,19 @@ func (a *Authenticator) Login(username, password string) (string, error) {
 
 	authResp, err := a.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("NDM auth request failed: %w", err)
+		return "", fmt.Errorf("NDM auth POST failed: %w", err)
 	}
 	authResp.Body.Close()
 
 	if authResp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("invalid credentials")
+		return "", fmt.Errorf("invalid credentials (NDM returned %d)", authResp.StatusCode)
 	}
 
 	return a.createSession(username), nil
+}
+
+func isRedirect(code int) bool {
+	return code == 301 || code == 302 || code == 303 || code == 307 || code == 308
 }
 
 // ValidateSession checks if a session token is valid and not expired.
