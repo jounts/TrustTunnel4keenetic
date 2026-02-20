@@ -9,6 +9,7 @@ const mode = ref<ModeInfo | null>(null)
 const clientConfigText = ref('')
 const saved = ref(false)
 const modeChanging = ref(false)
+const modeRestarting = ref(false)
 const showModeWarning = ref(false)
 const pendingMode = ref('')
 const configTemplate = `# Конфигурация TrustTunnel Client
@@ -73,13 +74,20 @@ function onModeChange(newMode: string) {
 async function confirmModeChange() {
   showModeWarning.value = false
   modeChanging.value = true
-  await api.putMode({
+  modeRestarting.value = false
+  const result = await api.putMode({
     mode: pendingMode.value,
     tun_idx: mode.value?.tun_idx ?? 0,
     proxy_idx: mode.value?.proxy_idx ?? 0,
   })
-  if (mode.value) mode.value.mode = pendingMode.value
-  modeChanging.value = false
+  if (result) {
+    if (mode.value) mode.value.mode = pendingMode.value
+    modeRestarting.value = true
+    modeChanging.value = false
+    setTimeout(() => { modeRestarting.value = false }, 15000)
+  } else {
+    modeChanging.value = false
+  }
 }
 </script>
 
@@ -98,6 +106,7 @@ async function confirmModeChange() {
         @change="onModeChange"
       />
       <div v-if="modeChanging" class="mt-3 text-sm text-brand-600 dark:text-brand-400">Переключение режима...</div>
+      <div v-else-if="modeRestarting" class="mt-3 text-sm text-amber-600 dark:text-amber-400">Режим изменён. Сервис перезапускается...</div>
     </div>
 
     <!-- Config editor -->

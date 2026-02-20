@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"io"
+	"log"
 	"net/http"
 )
 
@@ -96,6 +97,14 @@ func (h *handlers) putMode(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "config saved but interface error: "+err.Error())
 		return
 	}
+
+	// Restart the VPN client so it picks up the new mode and
+	// the init script properly waits for the kernel TUN device.
+	go func() {
+		if _, err := h.deps.ServiceManager.Control("restart"); err != nil {
+			log.Printf("service restart after mode change failed: %v", err)
+		}
+	}()
 
 	writeJSON(w, http.StatusOK, map[string]string{"status": "mode changed", "mode": req.Mode})
 }
