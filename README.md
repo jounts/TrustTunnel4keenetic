@@ -133,7 +133,9 @@ curl -fsSL https://raw.githubusercontent.com/jounts/TrustTunnel4keenetic/master/
 2. Режим работы: `/opt/trusttunnel_client/mode.conf`
 3. Веб-панель: `/opt/trusttunnel_client/manager.conf`
 
-### Пароль для веб-панели
+### Аутентификация веб-панели
+
+По умолчанию используется NDM-аутентификация — вход через учётные записи роутера Keenetic. Для отключения аутентификации:
 
 ```bash
 vi /opt/trusttunnel_client/manager.conf
@@ -141,9 +143,13 @@ vi /opt/trusttunnel_client/manager.conf
 
 ```
 LISTEN_ADDR=":8080"
-USERNAME="admin"
-PASSWORD="your_password"
+AUTH_MODE="ndm"
 ```
+
+| Значение `AUTH_MODE` | Описание |
+|----------------------|----------|
+| `ndm` (по умолчанию) | Аутентификация через учётные записи Keenetic (challenge-response) |
+| `none` | Аутентификация отключена |
 
 ### Smart Routing
 
@@ -172,26 +178,58 @@ SR_DNS_UPSTREAM="1.1.1.1"
 
 ## REST API
 
+### Аутентификация (публичные)
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `POST` | `/api/auth/login` | Вход через учётную запись Keenetic |
+| `POST` | `/api/auth/logout` | Завершение сессии |
+| `GET` | `/api/auth/check` | Проверка статуса аутентификации |
+
+### Сервис
+
 | Метод | Путь | Описание |
 |-------|------|----------|
 | `GET` | `/api/status` | Статус сервиса (running, PID, uptime, mode, health check) |
-| `POST` | `/api/service/{start,stop,restart}` | Управление сервисом |
+| `POST` | `/api/service/{action}` | Управление сервисом (`start`, `stop`, `restart`, `reload`) |
+| `GET` | `/api/system` | Информация о системе (модель, прошивка, NDMS версия, FW backend) |
+
+### Конфигурация
+
+| Метод | Путь | Описание |
+|-------|------|----------|
 | `GET` | `/api/config` | Чтение конфигурации (TOML + mode.conf) |
 | `PUT` | `/api/config` | Запись конфигурации |
 | `GET` | `/api/mode` | Текущий режим |
 | `PUT` | `/api/mode` | Смена режима (SOCKS5/TUN) |
-| `GET` | `/api/logs?lines=100` | Последние N строк лога |
-| `GET` | `/api/logs/stream` | SSE-поток логов (live) |
-| `GET` | `/api/update/check` | Проверка обновлений |
+
+### Логи
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/api/logs?lines=100&source=client` | Последние N строк лога (`source`: `client` или `manager`) |
+| `GET` | `/api/logs/stream?source=client` | SSE-поток логов (live) |
+| `DELETE` | `/api/logs` | Очистка лог-файлов |
+
+### Обновления
+
+| Метод | Путь | Описание |
+|-------|------|----------|
+| `GET` | `/api/update/check` | Проверка обновлений (клиент + менеджер) |
 | `POST` | `/api/update/install` | Установка обновления клиента |
-| `GET` | `/api/system` | Информация о системе (модель, прошивка, NDMS версия, FW backend) |
+| `POST` | `/api/update/install-manager` | Установка обновления менеджера (self-update) |
+
+### Smart Routing
+
+| Метод | Путь | Описание |
+|-------|------|----------|
 | `GET` | `/api/routing` | Конфигурация и статистика Smart Routing |
 | `PUT` | `/api/routing` | Обновление настроек Smart Routing |
 | `GET` | `/api/routing/domains` | Список доменов для туннеля |
 | `PUT` | `/api/routing/domains` | Обновление списка доменов |
 | `POST` | `/api/routing/update-nets` | Обновление GeoIP-списков |
 
-Аутентификация: HTTP Basic Auth (если задан пароль).
+Все эндпоинты кроме `/api/auth/*` требуют аутентификации (сессионный cookie). Режим аутентификации настраивается в `manager.conf` (`AUTH_MODE`).
 
 ## NDM-хуки
 
@@ -305,6 +343,11 @@ cd web && npm run build && cd ..
 # Запуск Go (dev)
 go run ./cmd/trusttunnel-manager -dev
 ```
+
+## Благодарности
+
+- [TrustTunnel VPN](https://github.com/TrustTunnel/TrustTunnelClient) — VPN-клиент, для которого создан этот менеджер
+- [TrustTunnel-Keenetic](https://github.com/artemevsevev/TrustTunnel-Keenetic) — проект, вдохновивший на создание этой обёртки
 
 ## Лицензия
 
