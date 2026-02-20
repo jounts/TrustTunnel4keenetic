@@ -1,8 +1,10 @@
 package ndm
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -10,6 +12,22 @@ import (
 	"strings"
 	"time"
 )
+
+type parseRequest struct {
+	Parse string `json:"parse"`
+}
+
+type parseResponse struct {
+	Parse struct {
+		Status []rciStatus `json:"status,omitempty"`
+	} `json:"parse"`
+}
+
+type rciStatus struct {
+	Status  string `json:"status"`
+	Code    string `json:"code,omitempty"`
+	Message string `json:"message,omitempty"`
+}
 
 type Client struct {
 	baseURL    string
