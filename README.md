@@ -68,6 +68,13 @@
 
 ## Установка
 
+### Требования
+
+- OPKG Entware — установлен на роутере
+    - для [KN-1012](https://support.keenetic.com/hero/kn-1012/en/18481-opkg.html)
+    - для [NC-1012](https://support.netcraze.ru/giga/nc-1012/ru/18481-opkg.html)
+- `curl` — `opkg install curl`
+
 ### Быстрая установка (curl)
 
 ```bash
