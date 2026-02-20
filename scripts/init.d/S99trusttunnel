@@ -35,6 +35,8 @@ SR_HOME_COUNTRY="RU"
 SR_DNS_PORT=5354
 SR_DNS_UPSTREAM="1.1.1.1"
 
+ROUTING_STATE_FILE="/opt/var/run/tun_routing.conf"
+
 COMPAT_SH="$TT_DIR/ndms-compat.sh"
 SMART_ROUTING_SH="$TT_DIR/smart-routing.sh"
 
@@ -78,6 +80,92 @@ setup_ca_certs() {
         export SSL_CERT_DIR="/opt/etc/ssl/certs"
         log_msg "WARNING: bind mount failed, falling back to SSL_CERT_FILE env var"
     fi
+}
+
+setup_tun_routing() {
+    local tun_dev="tun${TUN_IDX}"
+
+    # Extract VPN server IP from config
+    local vpn_server_ip
+    vpn_server_ip=$(grep -A5 '\[endpoint\]' "$TT_CONF" \
+        | grep 'addresses' \
+        | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' \
+        | head -1)
+
+    if [ -z "$vpn_server_ip" ]; then
+        log_msg "WARNING: Could not extract VPN server IP, skipping routing setup"
+        return 1
+    fi
+
+    # Get original default route (exclude tun interfaces)
+    local route_line
+    route_line=$(ip route show default 2>/dev/null | grep -v "tun" | head -n1)
+
+    local orig_gw=""
+    local orig_dev=""
+    echo "$route_line" | grep -q "via" && \
+        orig_gw=$(echo "$route_line" | sed -n 's/.*via \([^ ]*\).*/\1/p')
+    orig_dev=$(echo "$route_line" | sed -n 's/.*dev \([^ ]*\).*/\1/p')
+
+    if [ -z "$orig_dev" ]; then
+        log_msg "WARNING: Could not detect original gateway, skipping routing setup"
+        return 1
+    fi
+
+    # Save state for cleanup
+    cat > "$ROUTING_STATE_FILE" << EOF
+VPN_SERVER=$vpn_server_ip
+ORIG_GW=$orig_gw
+ORIG_DEV=$orig_dev
+EOF
+
+    # Host route for VPN server — must always go via ISP, not the tunnel
+    if [ -n "$orig_gw" ]; then
+        ip route add "$vpn_server_ip/32" via "$orig_gw" dev "$orig_dev" 2>/dev/null
+    else
+        ip route add "$vpn_server_ip/32" dev "$orig_dev" 2>/dev/null
+    fi
+
+    log_msg "VPN server route: $vpn_server_ip via ${orig_gw:-direct} dev $orig_dev"
+}
+
+activate_tun_default_route() {
+    local tun_dev="tun${TUN_IDX}"
+    ip route replace default dev "$tun_dev"
+    log_msg "Default route switched to $tun_dev"
+}
+
+cleanup_tun_routing() {
+    [ ! -f "$ROUTING_STATE_FILE" ] && return 0
+
+    . "$ROUTING_STATE_FILE"
+
+    # Remove host route for VPN server
+    ip route del "$VPN_SERVER/32" 2>/dev/null
+
+    # Restore original default route
+    if [ -n "$ORIG_GW" ]; then
+        ip route replace default via "$ORIG_GW" dev "$ORIG_DEV"
+    else
+        ip route replace default dev "$ORIG_DEV"
+    fi
+
+    rm -f "$ROUTING_STATE_FILE"
+    log_msg "Routing restored: default via ${ORIG_GW:-direct} dev $ORIG_DEV"
+}
+
+wait_for_vpn_connected() {
+    local timeout=${1:-30}
+    local i=0
+    while [ $i -lt $timeout ]; do
+        if tail -5 "$LOG_FILE" 2>/dev/null | grep -q "VPN_SS_CONNECTED"; then
+            return 0
+        fi
+        sleep 1
+        i=$((i + 1))
+    done
+    log_msg "WARNING: VPN did not reach CONNECTED state within ${timeout}s"
+    return 1
 }
 
 rotate_log() {
@@ -250,7 +338,15 @@ start_client() {
             log_msg "MSS clamping enabled on tun${TUN_IDX}"
         fi
 
+        # Host route for VPN server must exist before we move the default route
+        setup_tun_routing
+
         "$TT_BIN" --config "$TT_CONF" >> "$LOG_FILE" 2>&1 &
+
+        # Wait for VPN to connect, then redirect all traffic through tunnel
+        if wait_for_vpn_connected 30; then
+            activate_tun_default_route
+        fi
 
         # Start smart routing after tunnel is up
         if [ "$SR_ENABLED" = "yes" ] && type sr_start > /dev/null 2>&1; then
@@ -282,6 +378,9 @@ stop_client() {
             log_msg "MSS clamping removed from tun${TUN_IDX}"
         fi
     fi
+
+    # Restore original routing before stopping the client
+    cleanup_tun_routing
 
     # Stop smart routing before stopping the client
     if [ "$SR_ENABLED" = "yes" ] && type sr_stop > /dev/null 2>&1; then
