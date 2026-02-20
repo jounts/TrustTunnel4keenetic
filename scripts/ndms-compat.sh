@@ -8,12 +8,46 @@
 NDMS_VERSION_FILE="/tmp/ndm/version"
 NDMS_COMPAT_CACHE="/opt/var/run/tt_ndms_compat"
 
+# Send a CLI command to NDM via HTTP RCI API (POST to localhost:79).
+# Falls back to ndmc binary if curl/RCI is unavailable.
+# Usage: ndm_cmd "interface Proxy0" "interface Proxy0 proxy protocol socks5" ...
+ndm_cmd() {
+    local json="["
+    local first=1
+    for cmd in "$@"; do
+        [ "$first" = "1" ] && first=0 || json="${json},"
+        json="${json}{\"parse\":\"${cmd}\"}"
+    done
+    json="${json}]"
+
+    if command -v curl > /dev/null 2>&1; then
+        local resp
+        resp=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X POST -H "Content-Type: application/json" \
+            -d "$json" "http://localhost:79/rci/" 2>/dev/null)
+        if [ "$resp" = "200" ]; then
+            return 0
+        fi
+    fi
+
+    # Fallback: run each command via ndmc
+    for cmd in "$@"; do
+        ndmc -c "$cmd" 2>/dev/null || true
+    done
+}
+
 # Detect NDMS major version (3, 4 or 5)
 ndms_detect_version() {
     local ver
     ver=$(cat "$NDMS_VERSION_FILE" 2>/dev/null | head -n1)
 
-    # Fallback: query ndmc if version file is missing
+    # Fallback: RCI HTTP API
+    if [ -z "$ver" ] && command -v curl > /dev/null 2>&1; then
+        ver=$(curl -s "http://localhost:79/rci/show/version" 2>/dev/null | \
+            sed -n 's/.*"release"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+    fi
+
+    # Last resort: ndmc CLI
     if [ -z "$ver" ] && command -v ndmc > /dev/null 2>&1; then
         ver=$(ndmc -c "show version" 2>/dev/null | grep "^\s*release:" | head -n1 | sed 's/.*:\s*//')
     fi

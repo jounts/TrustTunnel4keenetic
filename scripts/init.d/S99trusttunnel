@@ -100,14 +100,15 @@ setup_tun_interface() {
     local tun_name="OpkgTun${TUN_IDX}"
     log_msg "Setting up TUN interface: $tun_name"
 
-    ndmc -c "interface $tun_name"
-    ndmc -c "interface $tun_name description \"TrustTunnel TUN $TUN_IDX\""
-    ndmc -c "interface $tun_name ip address 172.16.219.2 255.255.255.255"
-    ndmc -c "interface $tun_name ip global auto"
-    ndmc -c "interface $tun_name ip mtu 1280"
-    ndmc -c "interface $tun_name ip tcp adjust-mss pmtu"
-    ndmc -c "interface $tun_name security-level public"
-    ndmc -c "interface $tun_name up"
+    ndm_cmd \
+        "interface $tun_name" \
+        "interface $tun_name description \"TrustTunnel TUN $TUN_IDX\"" \
+        "interface $tun_name ip address 172.16.219.2 255.255.255.255" \
+        "interface $tun_name ip global auto" \
+        "interface $tun_name ip mtu 1280" \
+        "interface $tun_name ip tcp adjust-mss pmtu" \
+        "interface $tun_name security-level public" \
+        "interface $tun_name up"
 
     # Wait for the kernel interface to appear and rename it.
     # NDMS 4 creates "nwg{N}", NDMS 5 may use a different prefix.
@@ -144,14 +145,15 @@ setup_proxy_interface() {
     local proxy_name="Proxy${PROXY_IDX}"
     log_msg "Setting up Proxy interface: $proxy_name"
 
-    ndmc -c "interface $proxy_name"
-    ndmc -c "interface $proxy_name description \"TrustTunnel Proxy $PROXY_IDX\""
-    ndmc -c "interface $proxy_name proxy protocol socks5"
-    ndmc -c "interface $proxy_name proxy upstream 127.0.0.1 1080"
-    ndmc -c "interface $proxy_name proxy connect"
-    ndmc -c "interface $proxy_name ip global auto"
-    ndmc -c "interface $proxy_name security-level public"
-    ndmc -c "system configuration save"
+    ndm_cmd \
+        "interface $proxy_name" \
+        "interface $proxy_name description \"TrustTunnel Proxy $PROXY_IDX\"" \
+        "interface $proxy_name proxy protocol socks5" \
+        "interface $proxy_name proxy upstream 127.0.0.1 1080" \
+        "interface $proxy_name proxy connect" \
+        "interface $proxy_name ip global auto" \
+        "interface $proxy_name security-level public" \
+        "system configuration save"
 }
 
 start_client() {

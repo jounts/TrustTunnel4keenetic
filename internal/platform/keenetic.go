@@ -1,10 +1,13 @@
 package platform
 
 import (
+	"encoding/json"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"time"
 )
 
 type SystemInfo struct {
@@ -27,7 +30,17 @@ func (i *Info) Get() *SystemInfo {
 	model := readFirstLine("/tmp/ndm/hw_type")
 	firmware := readFirstLine("/tmp/ndm/version")
 
-	// Fallback: query ndmc if files are missing
+	// Fallback: try RCI HTTP API, then ndmc CLI
+	if model == "unknown" || firmware == "unknown" {
+		if rciInfo := rciShowVersion(); rciInfo != nil {
+			if model == "unknown" && rciInfo.model != "" {
+				model = rciInfo.model
+			}
+			if firmware == "unknown" && rciInfo.version != "" {
+				firmware = rciInfo.version
+			}
+		}
+	}
 	if model == "unknown" || firmware == "unknown" {
 		if ndmInfo := ndmcShowVersion(); ndmInfo != nil {
 			if model == "unknown" && ndmInfo.model != "" {
@@ -53,6 +66,41 @@ func (i *Info) Get() *SystemInfo {
 type ndmcInfo struct {
 	model   string
 	version string
+}
+
+func rciShowVersion() *ndmcInfo {
+	client := &http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get("http://localhost:79/rci/show/version")
+	if err != nil {
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil
+	}
+
+	var result struct {
+		Model   string `json:"model"`
+		Device  string `json:"device"`
+		Title   string `json:"title"`
+		Release string `json:"release"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil
+	}
+
+	info := &ndmcInfo{}
+	if result.Model != "" {
+		info.model = result.Model
+	} else if result.Device != "" {
+		info.model = result.Device
+	}
+	if result.Title != "" {
+		info.version = result.Title
+	} else if result.Release != "" {
+		info.version = result.Release
+	}
+	return info
 }
 
 func ndmcShowVersion() *ndmcInfo {
