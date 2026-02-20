@@ -56,6 +56,8 @@ rotate_log() {
     if [ -f "$LOG_FILE" ]; then
         local size=$(wc -c < "$LOG_FILE" 2>/dev/null || echo 0)
         if [ "$size" -gt "$MAX_LOG_SIZE" ]; then
+            [ -f "${LOG_FILE}.2" ] && rm -f "${LOG_FILE}.2"
+            [ -f "${LOG_FILE}.1" ] && mv "${LOG_FILE}.1" "${LOG_FILE}.2"
             mv "$LOG_FILE" "${LOG_FILE}.1"
         fi
     fi
@@ -248,10 +250,17 @@ health_check() {
 
 watchdog_loop() {
     local fail_count=0
+    local rotate_counter=0
 
     sleep "$HC_GRACE_PERIOD"
 
     while true; do
+        rotate_counter=$((rotate_counter + 1))
+        if [ "$rotate_counter" -ge 20 ]; then
+            rotate_log
+            rotate_counter=0
+        fi
+
         if [ ! -f "$PID_FILE" ] || ! kill -0 "$(cat "$PID_FILE" 2>/dev/null)" 2>/dev/null; then
             log_msg "Watchdog: process died, restarting"
             start_client
