@@ -197,9 +197,15 @@ start_client() {
 
     log_msg "Starting TrustTunnel client in $TT_MODE mode (NDMS ${NDMS_MAJOR:-?}, FW: ${NDMS_FW_BACKEND:-?})"
 
-    # Ensure OpenSSL can find CA certificates on Entware
+    # Ensure the TLS library can find CA certificates on Entware.
+    # BoringSSL ignores SSL_CERT_FILE/SSL_CERT_DIR, so we also create
+    # symlinks at the standard system paths it probes.
     export SSL_CERT_FILE="${SSL_CERT_FILE:-/opt/etc/ssl/certs/ca-certificates.crt}"
     export SSL_CERT_DIR="${SSL_CERT_DIR:-/opt/etc/ssl/certs}"
+    if [ -f /opt/etc/ssl/certs/ca-certificates.crt ]; then
+        mkdir -p /etc/ssl/certs 2>/dev/null || true
+        ln -sf /opt/etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt 2>/dev/null || true
+    fi
 
     if [ "$TT_MODE" = "tun" ]; then
         if ! find_free_tun_idx; then
